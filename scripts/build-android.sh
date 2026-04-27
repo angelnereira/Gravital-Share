@@ -64,6 +64,9 @@ APK_PATH=$(find "$ANDROID_DIR/app/build/outputs/apk/$BUILD_TYPE" -name "*.apk" |
 # ── Copy to outputs/ with versioned filename ──────────────────────────────────
 mkdir -p "$OUTPUTS_DIR"
 
+# Remove previous APKs of the same build type to keep only the latest
+find "$OUTPUTS_DIR" -maxdepth 1 -name "GravitalShare-*-${BUILD_TYPE}-*.apk" -delete
+
 VERSION_NAME=$(grep 'versionName' "$ANDROID_DIR/app/build.gradle.kts" | grep -oP '"\K[^"]+' | head -1)
 VERSION_CODE=$(grep 'versionCode' "$ANDROID_DIR/app/build.gradle.kts" | grep -oP '\d+' | head -1)
 TIMESTAMP=$(date +%Y%m%d_%H%M)
