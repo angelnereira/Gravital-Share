@@ -78,6 +78,8 @@ class SessionManager @Inject constructor(
                 GravitalLog.error(kind = "session_manager.start_client_failed",
                     payload = mapOf("code" to result))
                 _state.value = SessionState.Failed(SessionMode.CLIENT, "Engine error $result", false)
+            } else {
+                _state.value = SessionState.Connecting(SessionMode.CLIENT)
             }
         }
     }
@@ -100,6 +102,8 @@ class SessionManager @Inject constructor(
                 GravitalLog.error(kind = "session_manager.start_server_failed",
                     payload = mapOf("code" to result))
                 _state.value = SessionState.Failed(SessionMode.SERVER, "Engine error $result", false)
+            } else {
+                _state.value = SessionState.Connected(SessionMode.SERVER, socksAddr)
             }
         }
     }
@@ -115,6 +119,8 @@ class SessionManager @Inject constructor(
             }
             _state.value = SessionState.Stopping(m)
             engineBridge.stop()
+            _state.value = SessionState.Idle
+            _mode.value = SessionMode.IDLE
         }
     }
 
