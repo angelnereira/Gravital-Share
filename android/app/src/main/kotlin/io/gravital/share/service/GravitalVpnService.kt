@@ -3,24 +3,17 @@ package io.gravital.share.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
-import io.gravital.share.R
 import io.gravital.share.domain.SessionManager
-import io.gravital.share.domain.SessionMode
-import io.gravital.share.ffi.EngineBridge
+import io.gravital.share.domain.SettingsRepository
 import io.gravital.share.telemetry.GravitalLog
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
-/**
- * VPN client service (Modo Cliente).
- * Inherits from VpnService to gain access to protect() and TUN builder.
- */
 @AndroidEntryPoint
 class GravitalVpnService : VpnService() {
 
@@ -28,18 +21,14 @@ class GravitalVpnService : VpnService() {
         const val ACTION_START = "io.gravital.share.VPN_START"
         const val ACTION_STOP  = "io.gravital.share.VPN_STOP"
         const val EXTRA_PROXY  = "proxy_addr"
-        const val EXTRA_MTU    = "mtu"
-        const val EXTRA_DNS    = "dns_server"
 
         private const val NOTIFICATION_ID = 1001
-        private const val CHANNEL_ID = "gravital_vpn"
-
-        const val DEFAULT_MTU = 1280
-        const val DEFAULT_DNS = "1.1.1.1"
-        const val DEFAULT_VPN_IP = "10.42.0.2"
+        private const val CHANNEL_ID      = "gravital_vpn"
+        private const val DEFAULT_VPN_IP  = "10.42.0.2"
     }
 
     @Inject lateinit var sessionManager: SessionManager
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tunFd: Int = -1
@@ -54,50 +43,39 @@ class GravitalVpnService : VpnService() {
 
     private fun startVpn(intent: Intent) {
         val proxyAddr = intent.getStringExtra(EXTRA_PROXY) ?: "192.168.43.1:1080"
-        val mtu = intent.getIntExtra(EXTRA_MTU, DEFAULT_MTU)
-        val dns = intent.getStringExtra(EXTRA_DNS) ?: DEFAULT_DNS
-
         startForeground(NOTIFICATION_ID, buildNotification("Conectando…"))
-
-        GravitalLog.info(
-            kind = "vpn_service.starting",
-            payload = mapOf("proxy" to proxyAddr, "mtu" to mtu, "dns" to dns)
-        )
-
-        val tunParcel = Builder()
-            .setSession("Gravital Share")
-            .addAddress(DEFAULT_VPN_IP, 32)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-            .addDnsServer(dns)
-            .setMtu(mtu)
-            .setBlocking(false)
-            // Anti-loop: exclude our own app from the VPN
-            .addDisallowedApplication(packageName)
-            .establish()
-
-        if (tunParcel == null) {
-            GravitalLog.error(kind = "vpn_service.establish_failed")
-            stopSelf()
-            return
-        }
-
-        tunFd = tunParcel.detachFd()
+        GravitalLog.info(kind = "vpn_service.starting", payload = mapOf("proxy" to proxyAddr))
 
         scope.launch {
-            sessionManager.startClient(tunFd, proxyAddr, mtu, dns)
-        }
+            val settings = settingsRepository.settings.first()
 
-        updateNotification("Conectado")
+            val tunParcel = Builder()
+                .setSession("Gravital Share")
+                .addAddress(DEFAULT_VPN_IP, 32)
+                .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
+                .addDnsServer(settings.dnsServer)
+                .setMtu(settings.mtu)
+                .setBlocking(false)
+                .addDisallowedApplication(packageName)
+                .establish()
+
+            if (tunParcel == null) {
+                GravitalLog.error(kind = "vpn_service.establish_failed")
+                stopSelf()
+                return@launch
+            }
+
+            tunFd = tunParcel.detachFd()
+            sessionManager.startClient(tunFd, proxyAddr, settings.mtu, settings.dnsServer)
+            updateNotification("Activo · $proxyAddr")
+        }
     }
 
     private fun stopVpn() {
         GravitalLog.info(kind = "vpn_service.stopping")
         scope.launch { sessionManager.stop() }
-        if (tunFd >= 0) {
-            // fd is now owned by the engine — do not close here
-            tunFd = -1
-        }
+        if (tunFd >= 0) tunFd = -1
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -124,17 +102,12 @@ class GravitalVpnService : VpnService() {
     }
 
     private fun updateNotification(status: String) {
-        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildNotification(status))
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIFICATION_ID, buildNotification(status))
     }
 
     private fun createChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Gravital Share VPN",
-            NotificationManager.IMPORTANCE_LOW
-        )
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-            .createNotificationChannel(channel)
+        val ch = NotificationChannel(CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_LOW)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
     }
 }

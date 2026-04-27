@@ -7,7 +7,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -35,8 +38,6 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-
-    // Pending proxy addr while VPN permission dialog is showing
     var pendingProxy by remember { mutableStateOf<String?>(null) }
 
     val vpnLauncher = rememberLauncherForActivityResult(
@@ -48,7 +49,6 @@ fun HomeScreen(
         pendingProxy = null
     }
 
-    // Collect one-shot events from ViewModel
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
@@ -67,18 +67,25 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
-                    Text("Gravital Share", fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+                    Text(
+                        "Gravital Share",
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.3).sp
+                    )
                 },
                 actions = {
                     IconButton(onClick = onOpenDiagnostic) {
-                        Icon(Icons.Default.Analytics, contentDescription = "Diagnóstico")
+                        Icon(Icons.Outlined.Analytics, contentDescription = "Diagnóstico")
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Ajustes")
+                        Icon(Icons.Outlined.Settings, contentDescription = "Ajustes")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         }
     ) { padding ->
@@ -86,147 +93,380 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterVertically)
+            verticalArrangement = Arrangement.Center
         ) {
-            StatusOrb(state = uiState.sessionState, discovering = uiState.discovering)
 
-            // Status label
+            Spacer(Modifier.weight(1f))
+
+            // Status orb
+            StatusOrb(
+                state = uiState.sessionState,
+                discovering = uiState.discovering
+            )
+
+            Spacer(Modifier.height(28.dp))
+
+            // Primary status text
             Text(
                 text = when {
                     uiState.discovering -> "Buscando en la red…"
                     else -> uiState.sessionState.primaryLabel()
                 },
-                style = MaterialTheme.typography.titleLarge,
-                color = if (uiState.discovering) GravitalColors.StatusAmber
-                        else uiState.sessionState.orbColor()
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Medium,
+                color = when {
+                    uiState.discovering -> GravitalColors.StatusAmber
+                    else -> uiState.sessionState.orbColor()
+                },
+                textAlign = TextAlign.Center
             )
 
-            // Throughput when connected
-            if (uiState.sessionState is SessionState.Connected && uiState.throughputBps > 0) {
-                ThroughputRow(bytes = uiState.throughputBps)
-            }
+            Spacer(Modifier.height(8.dp))
 
-            // Reconnect attempt counter
-            if (uiState.sessionState is SessionState.Reconnecting) {
-                val s = uiState.sessionState as SessionState.Reconnecting
-                Text(
-                    text = "Intento ${s.attempt}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-
-            // ── Action area ────────────────────────────────────────────────────
-
+            // Secondary info row
             when {
-                // Discovery in progress
-                uiState.discovering -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                           verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            strokeWidth = 3.dp,
-                            color = GravitalColors.StatusAmber
-                        )
-                        TextButton(onClick = viewModel::cancelDiscovery) {
-                            Text("Cancelar")
-                        }
-                    }
-                }
-
-                // Idle — choose role
-                uiState.sessionState is SessionState.Idle -> {
-                    ModeSelector(
-                        onConnect = viewModel::startClientMode,
-                        onShare   = viewModel::startServerMode
+                uiState.sessionState is SessionState.Connected -> {
+                    val s = uiState.sessionState as SessionState.Connected
+                    ConnectedInfoRow(
+                        proxyAddr = s.proxyAddr,
+                        throughput = uiState.throughputBps
                     )
                 }
+                uiState.sessionState is SessionState.Reconnecting -> {
+                    val s = uiState.sessionState as SessionState.Reconnecting
+                    Text(
+                        "Intento ${s.attempt}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                uiState.sessionState is SessionState.Idle && !uiState.discovering -> {
+                    Text(
+                        "Elige cómo quieres usar esta sesión",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+                else -> Spacer(Modifier.height(20.dp))
+            }
 
-                // Active session — show stop button
-                uiState.sessionState !is SessionState.Stopping -> {
-                    Button(
-                        onClick = viewModel::stop,
-                        enabled = uiState.sessionState !is SessionState.Stopping,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (uiState.sessionState is SessionState.Connected)
-                                GravitalColors.StatusGreen else MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
-                    ) {
-                        Text(
-                            text = if (uiState.sessionState is SessionState.Connected ||
-                                       uiState.sessionState is SessionState.Reconnecting ||
-                                       uiState.sessionState is SessionState.Connecting)
-                                "Detener" else "Cancelar",
-                            style = MaterialTheme.typography.titleMedium
+            Spacer(Modifier.weight(1f))
+
+            // ── Action area ────────────────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    uiState.discovering -> DiscoveringActions(onCancel = viewModel::cancelDiscovery)
+
+                    uiState.sessionState is SessionState.Idle ->
+                        ModeCards(
+                            onConnect = viewModel::startClientMode,
+                            onShare   = viewModel::startServerMode
                         )
-                    }
+
+                    uiState.sessionState !is SessionState.Stopping ->
+                        StopButton(
+                            isConnected = uiState.sessionState is SessionState.Connected,
+                            onClick = viewModel::stop
+                        )
                 }
             }
 
             // Discovery error
             if (uiState.discoveryError != null) {
                 DiscoveryErrorCard(
-                    message = uiState.discoveryError!!,
-                    onRetry = viewModel::startClientMode,
+                    message   = uiState.discoveryError!!,
+                    onRetry   = viewModel::startClientMode,
                     onDismiss = viewModel::dismissDiscoveryError
                 )
+                Spacer(Modifier.height(16.dp))
             }
 
             // Engine error
             val failed = uiState.sessionState as? SessionState.Failed
             if (failed != null) {
-                ErrorBanner(
-                    message = failed.error,
-                    recoverable = failed.recoverable,
-                    onDismiss = viewModel::acknowledgeError,
-                    onRetry = if (failed.recoverable) viewModel::acknowledgeError else null
-                )
+                EngineErrorCard(message = failed.error, onDismiss = viewModel::acknowledgeError)
+                Spacer(Modifier.height(16.dp))
             }
 
-            // Server info card
-            if (uiState.sessionState is SessionState.Connected &&
-                uiState.mode == SessionMode.SERVER) {
+            // Server info
+            if (uiState.sessionState is SessionState.Connected && uiState.mode == SessionMode.SERVER) {
                 ServerInfoCard(clientCount = uiState.connectedClients)
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
 }
 
-// ── Composables ───────────────────────────────────────────────────────────────
+// ── Sub-composables ───────────────────────────────────────────────────────────
 
 @Composable
-fun ModeSelector(onConnect: () -> Unit, onShare: () -> Unit) {
+fun ModeCards(onConnect: () -> Unit, onShare: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ModeCard(
+            modifier  = Modifier.weight(1f),
+            icon      = Icons.Outlined.PhoneAndroid,
+            title     = "Conectar",
+            subtitle  = "Únete a una VPN compartida",
+            primary   = false,
+            onClick   = onConnect
+        )
+        ModeCard(
+            modifier  = Modifier.weight(1f),
+            icon      = Icons.Outlined.Hub,
+            title     = "Compartir",
+            subtitle  = "Comparte tu conexión VPN",
+            primary   = true,
+            onClick   = onShare
+        )
+    }
+}
+
+@Composable
+fun ModeCard(
+    modifier: Modifier,
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    primary: Boolean,
+    onClick: () -> Unit
+) {
+    val containerColor = if (primary)
+        MaterialTheme.colorScheme.primaryContainer
+    else
+        MaterialTheme.colorScheme.surfaceVariant
+
+    val contentColor = if (primary)
+        MaterialTheme.colorScheme.onPrimaryContainer
+    else
+        MaterialTheme.colorScheme.onSurfaceVariant
+
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(icon, null, tint = contentColor, modifier = Modifier.size(26.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = contentColor
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.72f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DiscoveringActions(onCancel: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = "Elige tu rol",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        CircularProgressIndicator(
+            modifier = Modifier.size(36.dp),
+            strokeWidth = 3.dp,
+            color = GravitalColors.StatusAmber
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            OutlinedButton(
-                onClick = onConnect,
-                modifier = Modifier.weight(1f).height(56.dp)
-            ) {
-                Icon(Icons.Default.PhoneAndroid, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Conectar")
+        OutlinedButton(onClick = onCancel) {
+            Text("Cancelar")
+        }
+    }
+}
+
+@Composable
+fun StopButton(isConnected: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = if (isConnected)
+                GravitalColors.StatusGreen.copy(alpha = 0.18f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Icon(
+            imageVector = if (isConnected) Icons.Filled.Stop else Icons.Filled.Cancel,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = if (isConnected) GravitalColors.StatusGreen
+                   else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (isConnected) "Detener" else "Cancelar",
+            style = MaterialTheme.typography.titleMedium,
+            color = if (isConnected) GravitalColors.StatusGreen
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun ConnectedInfoRow(proxyAddr: String, throughput: Long) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SuggestionChip(
+            onClick = {},
+            label = {
+                Text(
+                    proxyAddr,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            },
+            icon = {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    null,
+                    tint = GravitalColors.StatusGreen,
+                    modifier = Modifier.size(14.dp)
+                )
             }
-            Button(
-                onClick = onShare,
-                modifier = Modifier.weight(1f).height(56.dp)
-            ) {
-                Icon(Icons.Default.Hub, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Compartir")
+        )
+        if (throughput > 0) {
+            val label = when {
+                throughput > 1_000_000 -> "%.1f MB/s".format(throughput / 1_000_000.0)
+                throughput > 1_000     -> "%.0f KB/s".format(throughput / 1_000.0)
+                else                   -> "$throughput B/s"
+            }
+            SuggestionChip(
+                onClick = {},
+                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                icon = { Icon(Icons.Filled.SwapVert, null, modifier = Modifier.size(14.dp)) }
+            )
+        }
+    }
+}
+
+@Composable
+fun DiscoveryErrorCard(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.WifiOff, null,
+                    tint = GravitalColors.StatusAmber,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Servidor no encontrado",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GravitalColors.StatusAmber
+                )
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cerrar") }
+                Button(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Reintentar") }
+            }
+        }
+    }
+}
+
+@Composable
+fun EngineErrorCard(message: String, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Error, null, tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Filled.Close, "Cerrar",
+                    tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        }
+    }
+}
+
+@Composable
+fun ServerInfoCard(clientCount: Int) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Devices, null,
+                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    "Proxy activo",
+                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Text(
+                    "$clientCount dispositivo${if (clientCount != 1) "s" else ""} conectado${if (clientCount != 1) "s" else ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                )
             }
         }
     }
@@ -235,137 +475,32 @@ fun ModeSelector(onConnect: () -> Unit, onShare: () -> Unit) {
 @Composable
 fun StatusOrb(state: SessionState, discovering: Boolean = false) {
     val color = if (discovering) GravitalColors.StatusAmber else state.orbColor()
-    val isPulsing = discovering ||
-        state is SessionState.Preparing ||
-        state is SessionState.Reconnecting ||
-        state is SessionState.Connecting
+    val isPulsing = discovering || state is SessionState.Preparing
+        || state is SessionState.Reconnecting || state is SessionState.Connecting
 
     val pulse = rememberInfiniteTransition(label = "pulse")
     val scale by pulse.animateFloat(
         initialValue = 1f,
-        targetValue = if (isPulsing) 1.08f else 1f,
+        targetValue  = if (isPulsing) 1.07f else 1f,
         animationSpec = infiniteRepeatable(
-            tween(900, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse
+            tween(950, easing = FastOutSlowInEasing), RepeatMode.Reverse
         ),
         label = "scale"
     )
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(160.dp).scale(scale)
+        modifier = Modifier.size(148.dp).scale(scale)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(color.copy(alpha = 0.12f), size.minDimension / 2)
-            drawCircle(color.copy(alpha = 0.25f), size.minDimension / 2.6f)
-            drawCircle(color, size.minDimension / 4f)
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(color.copy(alpha = 0.08f), size.minDimension / 2f)
+            drawCircle(color.copy(alpha = 0.16f), size.minDimension / 2.7f)
+            drawCircle(color, size.minDimension / 4.2f)
         }
     }
 }
 
-@Composable
-fun ThroughputRow(bytes: Long) {
-    val text = when {
-        bytes > 1_000_000 -> "%.1f MB/s".format(bytes / 1_000_000.0)
-        bytes > 1_000     -> "%.0f KB/s".format(bytes / 1_000.0)
-        else              -> "$bytes B/s"
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.SwapVert, null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(text, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
-    }
-}
-
-@Composable
-fun DiscoveryErrorCard(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.WifiOff, null,
-                    tint = GravitalColors.StatusAmber,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Servidor no encontrado",
-                    fontWeight = FontWeight.SemiBold,
-                    color = GravitalColors.StatusAmber
-                )
-            }
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Start
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text("Cerrar")
-                }
-                Button(onClick = onRetry, modifier = Modifier.weight(1f)) {
-                    Text("Reintentar")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ErrorBanner(
-    message: String,
-    recoverable: Boolean,
-    onDismiss: () -> Unit,
-    onRetry: (() -> Unit)?
-) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = GravitalColors.StatusRed.copy(alpha = 0.15f)
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Error, null, tint = GravitalColors.StatusRed, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Conexión fallida", fontWeight = FontWeight.SemiBold, color = GravitalColors.StatusRed)
-                Text(message, style = MaterialTheme.typography.bodyMedium)
-            }
-            if (onRetry != null) {
-                TextButton(onClick = onRetry) { Text("Reintentar") }
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, "Cerrar")
-            }
-        }
-    }
-}
-
-@Composable
-fun ServerInfoCard(clientCount: Int) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Devices, null, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text("Proxy activo", fontWeight = FontWeight.Medium)
-                Text(
-                    text = "$clientCount dispositivo${if (clientCount != 1) "s" else ""} " +
-                           "conectado${if (clientCount != 1) "s" else ""}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-        }
-    }
-}
-
-// ── State helpers ─────────────────────────────────────────────────────────────
+// ── State extension helpers ───────────────────────────────────────────────────
 
 fun SessionState.orbColor(): Color = when (this) {
     is SessionState.Idle         -> GravitalColors.StatusGray
