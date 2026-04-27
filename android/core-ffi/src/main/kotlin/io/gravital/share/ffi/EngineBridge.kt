@@ -11,7 +11,7 @@ object EngineBridge {
         System.loadLibrary("gravital_engine")
     }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────
+    // Lifecycle
 
     external fun init(configJson: String): Int
     external fun startClient(tunFd: Int, configJson: String): Int
@@ -19,20 +19,26 @@ object EngineBridge {
     external fun stop(): Int
     external fun shutdown(): Int
 
-    // ── Information ────────────────────────────────────────────────────────
+    // Information
 
     external fun getState(): String
     external fun getStats(): String
 
-    // ── Telemetry callback ─────────────────────────────────────────────────
+    // Telemetry callback
+    // Stored on the Kotlin side; native code reaches it via a JNI global ref
+    // that will be registered once the tokio runtime is running in the engine.
 
-    external fun setEventCallback(callback: EventCallback)
+    @Volatile private var _eventCallback: EventCallback? = null
+
+    fun setEventCallback(callback: EventCallback) {
+        _eventCallback = callback
+    }
 
     fun interface EventCallback {
         fun onEvent(jsonEvent: String)
     }
 
-    // ── Contract version ───────────────────────────────────────────────────
+    // Contract version
 
     const val FFI_VERSION_EXPECTED = 1
     external fun ffiVersion(): Int
