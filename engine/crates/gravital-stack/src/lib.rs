@@ -2,7 +2,10 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
+pub(crate) mod device;
 pub mod error;
+pub mod nat;
+pub mod rewrite;
 pub mod stack;
 pub mod connection;
 

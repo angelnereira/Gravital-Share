@@ -196,7 +196,8 @@ pub async fn skip_bound_address<R: AsyncReadExt + Unpin>(r: &mut R, atyp: u8) ->
         _ => return Ok(()),
     };
     let mut discard = vec![0u8; addr_len + 2]; // +2 for port
-    r.read_exact(&mut discard).await.map_err(map_eof)
+    r.read_exact(&mut discard).await.map_err(map_eof)?;
+    Ok(())
 }
 
 fn map_eof(e: std::io::Error) -> SocksError {

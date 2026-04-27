@@ -110,7 +110,7 @@ async fn handle_http_proxy(
 
     info!(kind = "http.connect.request", peer = %peer, host = %host, port = port);
 
-    let upstream = match TcpStream::connect((host.as_str(), port)).await {
+    let mut upstream = match TcpStream::connect((host.as_str(), port)).await {
         Ok(s) => s,
         Err(_) => {
             send_error(&mut sock, 502, "Bad Gateway").await?;
@@ -122,9 +122,9 @@ async fn handle_http_proxy(
         .await
         .map_err(HttpProxyError::Io)?;
 
-    // Forward any bytes that arrived after the headers
+    // Forward any bytes that arrived after the CONNECT headers.
     if filled > req_end {
-        upstream_write(&upstream, &buf[req_end..filled]).await?;
+        upstream.write_all(&buf[req_end..filled]).await.map_err(HttpProxyError::Io)?;
     }
 
     relay_bidirectional(sock, upstream).await
@@ -146,11 +146,7 @@ async fn send_error(sock: &mut TcpStream, code: u16, msg: &str) -> Result<(), Ht
     sock.write_all(resp.as_bytes()).await.map_err(HttpProxyError::Io)
 }
 
-async fn upstream_write(stream: &TcpStream, data: &[u8]) -> Result<(), HttpProxyError> {
-    use tokio::io::AsyncWriteExt;
-    let mut s = stream.try_clone().await.map_err(HttpProxyError::Io)?;
-    s.write_all(data).await.map_err(HttpProxyError::Io)
-}
+// upstream_write removed — relay_bidirectional handles the data path.
 
 async fn relay_bidirectional(a: TcpStream, b: TcpStream) -> Result<(), HttpProxyError> {
     let (mut ar, mut aw) = a.into_split();
