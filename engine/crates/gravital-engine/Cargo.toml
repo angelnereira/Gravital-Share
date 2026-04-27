@@ -28,5 +28,8 @@ gravital-dns    = { path = "../gravital-dns" }
 gravital-udpgw  = { path = "../gravital-udpgw" }
 gravital-ffi    = { path = "../gravital-ffi" }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
