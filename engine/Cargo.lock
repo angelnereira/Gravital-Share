@@ -193,6 +193,7 @@ dependencies = [
  "gravital-stack",
  "gravital-tun",
  "gravital-udpgw",
+ "jni",
  "once_cell",
  "parking_lot",
  "serde",
