@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,8 +16,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -25,6 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import io.gravital.share.domain.QrCodeHelper
 import io.gravital.share.domain.SessionMode
 import io.gravital.share.domain.SessionState
 import io.gravital.share.ui.theme.GravitalColors
@@ -39,6 +45,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var pendingProxy by remember { mutableStateOf<String?>(null) }
+    var showServerQrDialog by remember { mutableStateOf(false) }
 
     val vpnLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -47,6 +54,10 @@ fun HomeScreen(
             pendingProxy?.let { viewModel.connectWithProxy(it) }
         }
         pendingProxy = null
+    }
+
+    val scanQrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.takeIf { it.isNotBlank() }?.let { viewModel.connectFromQr(it) }
     }
 
     LaunchedEffect(Unit) {
@@ -184,7 +195,16 @@ fun HomeScreen(
                 DiscoveryErrorCard(
                     message   = uiState.discoveryError!!,
                     onRetry   = viewModel::startClientMode,
-                    onDismiss = viewModel::dismissDiscoveryError
+                    onDismiss = viewModel::dismissDiscoveryError,
+                    onScanQr  = {
+                        scanQrLauncher.launch(
+                            ScanOptions().apply {
+                                setOrientationLocked(false)
+                                setBeepEnabled(false)
+                                setPrompt("Apunta al QR del dispositivo que comparte")
+                            }
+                        )
+                    }
                 )
                 Spacer(Modifier.height(16.dp))
             }
@@ -198,9 +218,22 @@ fun HomeScreen(
 
             // Server info
             if (uiState.sessionState is SessionState.Connected && uiState.mode == SessionMode.SERVER) {
-                ServerInfoCard(clientCount = uiState.connectedClients)
+                ServerInfoCard(
+                    clientCount = uiState.connectedClients,
+                    onShowQr    = { showServerQrDialog = true }
+                )
                 Spacer(Modifier.height(16.dp))
             }
+        }
+    }
+
+    // QR dialog shown when server taps the QR button
+    if (showServerQrDialog) {
+        val qrContent = remember { viewModel.getServerQrContent() }
+        if (qrContent != null) {
+            QrCodeDialog(content = qrContent, onDismiss = { showServerQrDialog = false })
+        } else {
+            showServerQrDialog = false
         }
     }
 }
@@ -367,7 +400,12 @@ fun ConnectedInfoRow(proxyAddr: String, throughput: Long) {
 }
 
 @Composable
-fun DiscoveryErrorCard(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
+fun DiscoveryErrorCard(
+    message: String,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onScanQr: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -401,6 +439,15 @@ fun DiscoveryErrorCard(message: String, onRetry: () -> Unit, onDismiss: () -> Un
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cerrar") }
                 Button(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Reintentar") }
+            }
+            FilledTonalButton(
+                onClick = onScanQr,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Outlined.QrCodeScanner, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Escanear QR del servidor")
             }
         }
     }
@@ -437,7 +484,7 @@ fun EngineErrorCard(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun ServerInfoCard(clientCount: Int) {
+fun ServerInfoCard(clientCount: Int, onShowQr: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -446,7 +493,7 @@ fun ServerInfoCard(clientCount: Int) {
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -455,7 +502,7 @@ fun ServerInfoCard(clientCount: Int) {
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Spacer(Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "Proxy activo",
                     fontWeight = FontWeight.Medium,
@@ -466,6 +513,12 @@ fun ServerInfoCard(clientCount: Int) {
                     "$clientCount dispositivo${if (clientCount != 1) "s" else ""} conectado${if (clientCount != 1) "s" else ""}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                )
+            }
+            IconButton(onClick = onShowQr) {
+                Icon(
+                    Icons.Outlined.QrCode2, "Mostrar QR",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
@@ -498,6 +551,49 @@ fun StatusOrb(state: SessionState, discovering: Boolean = false) {
             drawCircle(color, size.minDimension / 4.2f)
         }
     }
+}
+
+@Composable
+fun QrCodeDialog(content: String, onDismiss: () -> Unit) {
+    val bitmap = remember(content) { QrCodeHelper.generateQrBitmap(content, 512) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Código QR del servidor", fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "QR Code",
+                        modifier = Modifier
+                            .size(220.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                }
+                Text(
+                    content,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    "El cliente escanea este código si la detección automática no funciona",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar") }
+        }
+    )
 }
 
 // ── State extension helpers ───────────────────────────────────────────────────

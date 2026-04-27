@@ -17,6 +17,8 @@ espresso            = "3.6.1"
 mockk               = "1.13.13"
 coroutines-test     = "1.9.0"
 compose-ui-test     = "1.7.6"
+zxing-core          = "3.5.3"
+zxing-android       = "4.3.0"
 
 [libraries]
 # AndroidX
@@ -57,6 +59,10 @@ espresso            = { group = "androidx.test.espresso", name = "espresso-core"
 mockk               = { group = "io.mockk",              name = "mockk",            version.ref = "mockk" }
 coroutines-test     = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines-test" }
 compose-ui-test     = { group = "androidx.compose.ui",   name = "ui-test-junit4",   version.ref = "compose-ui-test" }
+
+# QR code
+zxing-core          = { group = "com.google.zxing",      name = "core",                    version.ref = "zxing-core" }
+zxing-android       = { group = "com.journeyapps",       name = "zxing-android-embedded",  version.ref = "zxing-android" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

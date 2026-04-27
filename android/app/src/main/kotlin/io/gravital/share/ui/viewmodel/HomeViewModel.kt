@@ -104,6 +104,25 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    // ── QR fallback ───────────────────────────────────────────────────────────
+
+    // Called when the client scans the server's QR code; format "host:port"
+    fun connectFromQr(scanned: String) {
+        viewModelScope.launch {
+            runCatching {
+                val lastColon = scanned.lastIndexOf(':')
+                scanned.substring(0, lastColon) to scanned.substring(lastColon + 1).toInt()
+            }.onSuccess { (host, port) ->
+                _discovery.value = Discovery()
+                events.emit(UiEvent.RequestVpnPermission("$host:$port"))
+            }
+        }
+    }
+
+    // Returns "ip:1080" for the first non-loopback IPv4 on the server device
+    fun getServerQrContent(): String? =
+        networkDiscovery.getServerAddresses().firstOrNull()?.let { "$it:1080" }
+
     // ── Stop current session ───────────────────────────────────────────────────
 
     fun stop() {

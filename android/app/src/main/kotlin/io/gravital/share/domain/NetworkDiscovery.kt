@@ -8,7 +8,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.Inet4Address
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.net.Socket
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -60,6 +62,16 @@ class NetworkDiscovery @Inject constructor(
                 }.getOrDefault(false)
             }
         } ?: false
+
+    fun getServerAddresses(): List<String> = runCatching {
+        NetworkInterface.getNetworkInterfaces()?.toList()
+            ?.filter { it.isUp && !it.isLoopback }
+            ?.flatMap { it.inetAddresses.toList() }
+            ?.filterIsInstance<Inet4Address>()
+            ?.filter { !it.isLoopbackAddress }
+            ?.mapNotNull { it.hostAddress }
+            ?: emptyList()
+    }.getOrDefault(emptyList())
 
     companion object {
         private val PROBE_PORTS = listOf(1080, 8080)
