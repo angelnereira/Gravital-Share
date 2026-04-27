@@ -16,3 +16,8 @@ android/local.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Android build caches (module-level)
+android/*/build/
+android/.kotlin/
+android/.gradle/

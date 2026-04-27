@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE_DIR="$REPO_ROOT/engine"
 ANDROID_DIR="$REPO_ROOT/android"
 JNI_LIBS="$ANDROID_DIR/app/src/main/jniLibs"
+OUTPUTS_DIR="$REPO_ROOT/outputs"
 
 # Defaults
 BUILD_TYPE="debug"
@@ -59,7 +60,23 @@ GRADLE_TASK="assemble$(echo "${BUILD_TYPE}" | awk '{print toupper(substr($0,1,1)
 )
 
 APK_PATH=$(find "$ANDROID_DIR/app/build/outputs/apk/$BUILD_TYPE" -name "*.apk" | head -1)
+
+# ── Copy to outputs/ with versioned filename ──────────────────────────────────
+mkdir -p "$OUTPUTS_DIR"
+
+VERSION_NAME=$(grep 'versionName' "$ANDROID_DIR/app/build.gradle.kts" | grep -oP '"\K[^"]+' | head -1)
+VERSION_CODE=$(grep 'versionCode' "$ANDROID_DIR/app/build.gradle.kts" | grep -oP '\d+' | head -1)
+TIMESTAMP=$(date +%Y%m%d_%H%M)
+FIRST_ABI="${ABI_LIST[0]}"
+
+DEST="$OUTPUTS_DIR/GravitalShare-${VERSION_NAME:-dev}-${VERSION_CODE:-0}-${BUILD_TYPE}-${FIRST_ABI}-${TIMESTAMP}.apk"
+cp "$APK_PATH" "$DEST"
+
+# Stable symlink for quick adb install
+ln -sf "$(basename "$DEST")" "$OUTPUTS_DIR/latest-${BUILD_TYPE}.apk"
+
 echo ""
 echo "==> Build complete"
-echo "    APK: $APK_PATH"
-echo "    SHA256: $(sha256sum "$APK_PATH" | awk '{print $1}')"
+echo "    APK   : $DEST"
+echo "    latest: $OUTPUTS_DIR/latest-${BUILD_TYPE}.apk"
+echo "    SHA256: $(sha256sum "$DEST" | awk '{print $1}')"

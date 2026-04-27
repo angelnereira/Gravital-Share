@@ -210,6 +210,7 @@ async fn run_client_loop(
     let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
     let tun_read_task = {
+        let writer_dns = writer.clone();
         tokio::spawn(async move {
             loop {
                 match reader.read_packet().await {
@@ -217,17 +218,33 @@ async fn run_client_loop(
                         metrics_rx.packets_in.fetch_add(1, Ordering::Relaxed);
                         metrics_rx.bytes_in.fetch_add(pkt.len() as u64, Ordering::Relaxed);
 
-                        // DNS interception: UDP port 53 — handled by DnsInterceptor.
-                        // For now feed all TCP to the stack; UDP/DNS handled below.
                         use gravital_proto::{IpProtocol, IpView};
                         match IpView::parse(&pkt) {
                             Ok(ip) => match ip.protocol() {
                                 IpProtocol::Tcp => {
                                     stack_rx.feed_inbound(pkt);
                                 }
+                                IpProtocol::Udp if udp_dst_port(&pkt) == Some(53) => {
+                                    // DNS leak prevention: intercept, resolve via
+                                    // protected socket, return SERVFAIL on error.
+                                    if let Some(query) = extract_udp_payload(&pkt) {
+                                        let dns = dns.clone();
+                                        let writer2 = writer_dns.clone();
+                                        let pkt_clone = pkt.clone();
+                                        let m = metrics_rx.clone();
+                                        tokio::spawn(async move {
+                                            if let Ok(resp) = dns.handle_query(&query).await {
+                                                if let Some(reply) = build_udp_reply(&pkt_clone, &resp) {
+                                                    m.packets_out.fetch_add(1, Ordering::Relaxed);
+                                                    m.bytes_out.fetch_add(reply.len() as u64, Ordering::Relaxed);
+                                                    let _ = writer2.lock().await.write_packet(&bytes::BytesMut::from(reply.as_slice())).await;
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
                                 IpProtocol::Udp => {
-                                    // TODO: route UDP/53 through DnsInterceptor,
-                                    // other UDP through udpgw relay.
+                                    // Non-DNS UDP — dropped in MVP (udpgw relay is Phase 2).
                                     metrics_rx.drops_parse_error
                                         .fetch_add(1, Ordering::Relaxed);
                                 }
@@ -349,4 +366,97 @@ async fn relay_connection(
 
     tokio::join!(app_to_up, up_to_app);
     debug!(kind = "relay.done", remote = %remote);
+}
+
+// ── DNS packet helpers ────────────────────────────────────────────────────────
+
+/// Return the UDP destination port from an IPv4/UDP packet, or None.
+fn udp_dst_port(pkt: &bytes::BytesMut) -> Option<u16> {
+    let p = pkt.as_ref();
+    if p.len() < 20 || (p[0] >> 4) != 4 || p[9] != 17 { return None; }
+    let ihl = (p[0] & 0x0F) as usize * 4;
+    if p.len() < ihl + 8 { return None; }
+    Some(u16::from_be_bytes([p[ihl + 2], p[ihl + 3]]))
+}
+
+/// Extract the UDP payload from an IPv4/UDP packet.
+fn extract_udp_payload(pkt: &bytes::BytesMut) -> Option<Vec<u8>> {
+    let p = pkt.as_ref();
+    if p.len() < 20 || (p[0] >> 4) != 4 || p[9] != 17 { return None; }
+    let ihl = (p[0] & 0x0F) as usize * 4;
+    if p.len() < ihl + 8 { return None; }
+    let udp_len = u16::from_be_bytes([p[ihl + 4], p[ihl + 5]]) as usize;
+    if udp_len < 8 || p.len() < ihl + udp_len { return None; }
+    Some(p[ihl + 8..ihl + udp_len].to_vec())
+}
+
+/// Build an IPv4/UDP reply from a request packet and a DNS response payload.
+/// Swaps src/dst addresses so the reply arrives from the right sender.
+fn build_udp_reply(req: &bytes::BytesMut, dns_resp: &[u8]) -> Option<Vec<u8>> {
+    let p = req.as_ref();
+    if p.len() < 28 || (p[0] >> 4) != 4 || p[9] != 17 { return None; }
+    let ihl = (p[0] & 0x0F) as usize * 4;
+
+    let src_ip = &p[12..16];
+    let dst_ip = &p[16..20];
+    let src_port = &p[ihl..ihl + 2];
+    let dst_port = &p[ihl + 2..ihl + 4];
+
+    let udp_len = (8 + dns_resp.len()) as u16;
+    let total = 20 + udp_len as usize;
+    let mut out = vec![0u8; total];
+
+    // IPv4 header (swap src/dst)
+    out[0] = 0x45;
+    out[2..4].copy_from_slice(&(total as u16).to_be_bytes());
+    out[8] = 64;   // TTL
+    out[9] = 17;   // UDP
+    out[12..16].copy_from_slice(dst_ip); // reply src = original dst
+    out[16..20].copy_from_slice(src_ip); // reply dst = original src
+
+    // UDP header (swap ports)
+    out[20..22].copy_from_slice(dst_port); // reply src port = DNS (53)
+    out[22..24].copy_from_slice(src_port); // reply dst port = original src port
+    out[24..26].copy_from_slice(&udp_len.to_be_bytes());
+    out[28..].copy_from_slice(dns_resp);
+
+    // Checksums via gravital-stack rewrite helpers (reuse RFC 1071 logic inline)
+    fix_ip4_checksum(&mut out);
+    fix_udp_checksum(&mut out);
+    Some(out)
+}
+
+fn fix_ip4_checksum(pkt: &mut [u8]) {
+    pkt[10] = 0; pkt[11] = 0;
+    let c = rfc1071(&pkt[..20]);
+    pkt[10..12].copy_from_slice(&c.to_be_bytes());
+}
+
+fn fix_udp_checksum(pkt: &mut [u8]) {
+    let ihl = (pkt[0] & 0x0F) as usize * 4;
+    let udp_len = pkt.len() - ihl;
+    pkt[ihl + 6] = 0; pkt[ihl + 7] = 0;
+    let mut sum = 0u32;
+    // Pseudo-header
+    for chunk in pkt[12..16].chunks_exact(2) { sum += u16::from_be_bytes([chunk[0], chunk[1]]) as u32; }
+    for chunk in pkt[16..20].chunks_exact(2) { sum += u16::from_be_bytes([chunk[0], chunk[1]]) as u32; }
+    sum += 17u32;
+    sum += udp_len as u32;
+    // UDP segment
+    let seg = &pkt[ihl..];
+    let mut chunks = seg.chunks_exact(2);
+    for c in &mut chunks { sum += u16::from_be_bytes([c[0], c[1]]) as u32; }
+    if let [t] = chunks.remainder() { sum += (*t as u32) << 8; }
+    while sum >> 16 != 0 { sum = (sum & 0xFFFF) + (sum >> 16); }
+    let csum = !(sum as u16);
+    pkt[ihl + 6..ihl + 8].copy_from_slice(&csum.to_be_bytes());
+}
+
+fn rfc1071(data: &[u8]) -> u16 {
+    let mut sum = 0u32;
+    let mut chunks = data.chunks_exact(2);
+    for c in &mut chunks { sum += u16::from_be_bytes([c[0], c[1]]) as u32; }
+    if let [t] = chunks.remainder() { sum += (*t as u32) << 8; }
+    while sum >> 16 != 0 { sum = (sum & 0xFFFF) + (sum >> 16); }
+    !(sum as u16)
 }
