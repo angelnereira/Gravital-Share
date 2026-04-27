@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import io.gravital.share.ui.PortraitCaptureActivity
 import io.gravital.share.domain.QrCodeHelper
 import io.gravital.share.domain.SessionMode
 import io.gravital.share.domain.SessionState
@@ -140,8 +141,14 @@ fun HomeScreen(
             when {
                 uiState.sessionState is SessionState.Connected -> {
                     val s = uiState.sessionState as SessionState.Connected
+                    // For server mode, show the reachable LAN IP instead of 0.0.0.0
+                    val displayAddr = if (uiState.mode == SessionMode.SERVER) {
+                        remember(uiState.sessionState) { viewModel.getServerQrContent() } ?: s.proxyAddr
+                    } else {
+                        s.proxyAddr
+                    }
                     ConnectedInfoRow(
-                        proxyAddr = s.proxyAddr,
+                        proxyAddr = displayAddr,
                         throughput = uiState.throughputBps
                     )
                 }
@@ -199,7 +206,8 @@ fun HomeScreen(
                     onScanQr  = {
                         scanQrLauncher.launch(
                             ScanOptions().apply {
-                                setOrientationLocked(false)
+                                setCaptureActivity(PortraitCaptureActivity::class.java)
+                                setOrientationLocked(true)
                                 setBeepEnabled(false)
                                 setPrompt("Apunta al QR del dispositivo que comparte")
                             }
