@@ -10,17 +10,35 @@
 
 Cuando un dispositivo Android comparte su conexión por hotspot, el tráfico de los clientes conectados no pasa por el túnel VPN del anfitrión. Android lo enruta directamente por `rmnet0`, fuera del `tun0`. Forzar el reenrutado requiere root.
 
-Gravital Share lo resuelve sin root: actúa como proxy SOCKS5/HTTP local en el anfitrión y redirige el tráfico de los clientes mediante `VpnService` en Android o un adaptador Wintun en Windows. El motor de red corre en Rust; el plano de control en Kotlin.
+Gravital Share lo resuelve sin root: actúa como proxy SOCKS5/HTTP local en el anfitrión y redirige el tráfico de los clientes mediante `VpnService` en Android. El motor de red corre en Rust; el plano de control en Kotlin.
+
+## Cómo funciona para el usuario
+
+El flujo está diseñado para requerir cero configuración en ambos lados.
+
+**Dispositivo A — el que comparte la VPN:**
+1. Activa el hotspot de Android desde Ajustes del sistema.
+2. Abre Gravital Share → toca **Compartir**.
+3. La app levanta el proxy SOCKS5 en `0.0.0.0:1080`. Listo.
+
+**Dispositivo B — el que se beneficia:**
+1. Se conecta al hotspot del dispositivo A por WiFi.
+2. Abre Gravital Share → toca **Conectar**.
+3. La app detecta automáticamente la IP del gateway, prueba el puerto 1080 con un timeout de 1.5 s y, al encontrar el servidor, solicita el permiso VPN del sistema operativo.
+4. Al conceder el permiso, establece el túnel. Todo el tráfico del dispositivo B pasa por la VPN de A.
+
+No se introduce IP ni puerto en ningún momento.
 
 ## Stack técnico
 
 | Capa | Tecnología |
 |------|------------|
 | Motor de red | Rust 1.84, tokio, smoltcp 0.11 |
-| Plano de control Android | Kotlin, Jetpack Compose, VpnService API |
+| Plano de control Android | Kotlin, Jetpack Compose, Material 3, VpnService API |
+| Persistencia | DataStore Preferences (DNS, MTU, telemetría) |
 | Cliente Windows | Rust + Wintun — Fase 2 |
-| Puente FFI | JNI (Android), cdylib (Windows) |
-| Observabilidad | Logs JSON estructurados (gs.event.v1), endpoint MCP |
+| Puente FFI | JNI en crate raíz cdylib (`jni_android.rs`) |
+| Observabilidad | Logs JSON `gs.event.v1`, endpoint MCP local |
 | Build | cargo-ndk, AGP 8.7.3, Gradle 8.9 |
 
 ## Estructura
@@ -30,7 +48,7 @@ gravital-share/
 ├── engine/                    # Motor de red Rust
 │   ├── Cargo.toml             # workspace (10 crates)
 │   ├── crates/
-│   │   ├── gravital-proto/    # parsers IPv4/TCP/UDP/ICMP + checksums
+│   │   ├── gravital-proto/    # parsers IPv4/TCP/UDP/ICMP + checksums RFC 1071
 │   │   ├── gravital-obs/      # logs JSON, sink stdout/logcat, endpoint MCP
 │   │   ├── gravital-tun/      # I/O async sobre el fd TUN de VpnService
 │   │   ├── gravital-socks/    # servidor y cliente SOCKS5 (RFC 1928)
@@ -38,16 +56,21 @@ gravital-share/
 │   │   ├── gravital-stack/    # userspace TCP/IP sobre smoltcp, NAT virtual
 │   │   ├── gravital-dns/      # interceptor DNS, resolver, canary leak check
 │   │   ├── gravital-udpgw/    # multiplexor UDP-sobre-TCP (badvpn-udpgw v1)
-│   │   ├── gravital-ffi/      # superficie C y JNI para Android
-│   │   └── gravital-engine/   # orquestador, state machine, config, métricas
+│   │   ├── gravital-ffi/      # superficie C; JNI vive en gravital-engine
+│   │   └── gravital-engine/   # orquestador, state machine, jni_android.rs
 │   └── fuzz/                  # harnesses libfuzzer (proto, socks, stack)
 ├── android/                   # App Android
 │   ├── app/                   # módulo principal
-│   ├── core-ffi/              # EngineBridge + bindings JNI
-│   ├── core-design/           # sistema de diseño Compose
-│   ├── core-telemetry/        # GravitalLog, eventos estructurados
+│   │   └── src/main/kotlin/
+│   │       ├── domain/        # SessionManager, NetworkDiscovery, SettingsRepository
+│   │       ├── service/       # GravitalVpnService, GravitalServerService
+│   │       ├── ui/            # screens, viewmodels, theme Material 3
+│   │       └── di/            # EngineModule (Hilt)
+│   ├── core-ffi/              # EngineBridge.kt — bindings JNI
+│   ├── core-design/           # GravitalColors, tipografía, tema base
+│   ├── core-telemetry/        # GravitalLog — eventos JSON estructurados
 │   └── gradle/                # version catalog (libs.versions.toml)
-├── outputs/                   # APKs listos para instalar
+├── outputs/                   # APK más reciente por tipo de build
 ├── scripts/
 │   ├── build-android.sh       # build canónico: Rust → .so → APK
 │   └── verify-toolchain.sh    # valida versiones de herramientas
@@ -56,62 +79,55 @@ gravital-share/
 
 ## Arquitectura del motor
 
-El flujo de datos en modo cliente:
+Flujo de datos en modo cliente:
 
 ```
 VpnService (tun0)
     │ paquetes IPv4 raw
     ▼
-gravital-tun → TunReader/TunWriter (tokio async)
+gravital-tun  ──  TunReader / TunWriter  (tokio async)
     │
-    ▼
-gravital-engine (runner)
-    │ intercepción DNS (UDP/53)
-    ├──────────────────────────────► gravital-dns → respuesta sintética
+    ├── UDP/53 ──► gravital-dns  ──► respuesta sintética (sin fugas)
     │
-    │ TCP → reescritura de cabeceras (dst_port → vport virtual)
+    │  TCP: reescritura dst_port → vport virtual
     ▼
-gravital-stack (smoltcp + NatTable)
-    │ VirtualConnection por cada sesión TCP
+gravital-stack  (smoltcp + NatTable + rewrite.rs)
+    │ VirtualConnection por sesión TCP
     ▼
-gravital-socks (SocksClient)
+gravital-socks  ──  SocksClient::connect()
     │ CONNECT hacia el proxy upstream
     ▼
 internet
 ```
 
-**NAT virtual**: cada conexión TCP recibe un puerto virtual (10 000–59 999) que la identifica dentro de smoltcp. El módulo `rewrite.rs` reescribe cabeceras IP/TCP y recalcula checksums (RFC 1071) sin modificar la IP de destino; smoltcp opera con `set_any_ip(true)`.
+**NAT virtual**: `NatTable` asigna un puerto virtual (10 000–59 999) por par `(src, real_dst)`. `rewrite.rs` reescribe cabeceras IP/TCP con checksums RFC 1071; smoltcp opera con `set_any_ip(true)` para aceptar cualquier IP de destino sin modificarla.
 
-## Crates del motor
+**Descubrimiento de servidor**: `NetworkDiscovery` lee la IP del gateway desde `LinkProperties` (API 30+) o `DhcpInfo` (fallback). Prueba los puertos 1080 y 8080 con `Socket.connect()` a 1.5 s de timeout.
 
-### gravital-proto
-Parsers zero-copy sobre `bytes::Buf`. Cubre IPv4, IPv6, TCP, UDP, ICMP. Todos los checksums validados contra vectores RFC.
-
-### gravital-stack
-Puente entre el fd TUN y smoltcp. `TunVirtualDevice` implementa el trait `Device` de smoltcp con dos colas (`VecDeque`) para separar el path de recepción del de transmisión sin conflictos de borrow. `NatTable` mapea `(src, real_dst) ↔ vport` y libera entradas cuando cierra la sesión.
-
-### gravital-socks
-Cliente y servidor SOCKS5 completo. Soporta CONNECT y UDP ASSOCIATE. El cliente expone `SocksClient::connect(addr, port) → TcpStream` que el relay usa para establecer el túnel upstream.
-
-### gravital-dns
-Intercepta todos los paquetes UDP/53 antes de que lleguen al stack. Resuelve por el canal cifrado o devuelve SERVFAIL; nunca deja escapar consultas a la interfaz de red real. Incluye `LeakCheck` con dominio canary.
-
-### gravital-obs
-Emite eventos `gs.event.v1` en JSON por stdout o logcat. Expone un endpoint MCP local para consumo por agentes externos. Sin dependencia de `std::io::stderr` en Android.
-
-### gravital-ffi
-Superficie C pura (`c_api.rs`) y bindings JNI (`jni_api.rs`, compilados solo en `target_os = "android"`). Maneja pánico en la frontera FFI con `catch_unwind`. El `EngineBridge` de Kotlin es un object singleton que llama a estas funciones nativas.
+**JNI**: los símbolos `Java_io_gravital_share_ffi_EngineBridge_*` están definidos directamente en `gravital-engine/src/jni_android.rs` (el crate `cdylib`). Los símbolos en crates dependencia no aparecen en la tabla dinámica del `.so`; colocarlos en el crate raíz garantiza su exportación.
 
 ## App Android
 
-Cuatro módulos Gradle:
+### Módulos
 
-- **app** — actividad principal, servicios VPN y servidor, ViewModels, navegación
-- **core-ffi** — `EngineBridge.kt`, bindings al motor nativo, Hilt module
-- **core-design** — tokens de color (`GravitalColors`), tipografía, tema Material3
-- **core-telemetry** — `GravitalLog.kt`, eventos JSON, integración con gravital-obs
+| Módulo | Responsabilidad |
+|--------|----------------|
+| `app` | Actividad, navegación, ViewModels, servicios VPN/servidor |
+| `core-ffi` | `EngineBridge.kt` — puente JNI con `System.loadLibrary` |
+| `core-design` | Tokens de color, tipografía, `GravitalTheme` Material 3 |
+| `core-telemetry` | `GravitalLog` — emisor de eventos `gs.event.v1` |
 
-La app pide permiso `VPN` al usuario mediante `VpnService.prepare()`. Una vez concedido, `GravitalVpnService` construye la interfaz TUN con `Builder.establish()` y pasa el fd al motor Rust vía JNI.
+### Pantallas
+
+**Home** — orb de estado animado, tarjetas de modo (Conectar / Compartir), chips de proxy y throughput cuando activo, banner de error con reintento.
+
+**Ajustes** — DNS, MTU, toggle de telemetría MCP. Persiste en DataStore; botón Guardar activo solo cuando hay cambios; snackbar de confirmación.
+
+**Diagnóstico** — stream de eventos del motor en tiempo real (últimos 500), badges de nivel con color tonal, métricas de estado/modo/contador, exportar vía `ACTION_SEND`.
+
+### Flujo de permisos
+
+`GravitalVpnService` usa el permiso `android.net.VpnService` estándar. La app llama a `VpnService.prepare()` desde `HomeScreen` vía `ActivityResultLauncher`; si el permiso ya fue concedido, conecta directamente sin mostrar diálogo.
 
 ## Build
 
@@ -125,8 +141,6 @@ La app pide permiso `VPN` al usuario mediante `VpnService.prepare()`. Una vez co
 | Java | 21 |
 | Android SDK | API 35 + build-tools 35.0.0 |
 
-Verifica el entorno:
-
 ```bash
 ./scripts/verify-toolchain.sh
 ```
@@ -134,25 +148,25 @@ Verifica el entorno:
 ### Compilar
 
 ```bash
-# Debug — todos los ABIs (arm64-v8a, armeabi-v7a, x86_64)
+# Debug — arm64-v8a, armeabi-v7a, x86_64
 ./scripts/build-android.sh
+
+# Solo un ABI (ciclos de desarrollo más rápidos)
+./scripts/build-android.sh --abi arm64-v8a
 
 # Release (requiere keystore configurado)
 ./scripts/build-android.sh --release
-
-# Un solo ABI, más rápido en desarrollo
-./scripts/build-android.sh --abi arm64-v8a
 ```
 
-Cada build deposita el APK en `outputs/` con nombre versionado:
+Cada build elimina el APK anterior del mismo tipo y deposita uno nuevo en `outputs/`:
 
 ```
 GravitalShare-{versionName}-{versionCode}-{tipo}-{abi}-{yyyymmdd_HHMM}.apk
 ```
 
-El symlink `outputs/latest-debug.apk` siempre apunta al último build de debug.
+El symlink `outputs/latest-debug.apk` apunta siempre al último debug.
 
-### Instalar en dispositivo
+### Instalar
 
 ```bash
 adb install -r outputs/latest-debug.apk
@@ -160,39 +174,43 @@ adb install -r outputs/latest-debug.apk
 
 ## Estado
 
-**Motor Rust** — compilado y enlazado
+**Motor Rust** — compilado, enlazado, símbolos JNI exportados y verificados
 
-- [x] `gravital-proto` — parsers y checksums
-- [x] `gravital-obs` — observabilidad, endpoint MCP
+- [x] `gravital-proto` — parsers zero-copy, checksums RFC 1071
+- [x] `gravital-obs` — logs JSON, sink logcat, endpoint MCP
 - [x] `gravital-tun` — I/O async TUN
-- [x] `gravital-socks` — SOCKS5 cliente y servidor
+- [x] `gravital-socks` — SOCKS5 cliente y servidor completo
 - [x] `gravital-http` — proxy HTTP CONNECT
 - [x] `gravital-stack` — smoltcp + NAT virtual + reescritura de paquetes
-- [x] `gravital-dns` — interceptor sin fugas + canary
+- [x] `gravital-dns` — interceptor sin fugas + canary leak check
 - [x] `gravital-udpgw` — UDP-sobre-TCP
-- [x] `gravital-ffi` — superficie C + JNI
-- [x] `gravital-engine` — orquestador completo, relay SOCKS5, DNS hook
+- [x] `gravital-ffi` — superficie C
+- [x] `gravital-engine` — orquestador, relay SOCKS5, DNS hook, JNI android
 - [x] Harnesses de fuzzing (proto, socks, stack)
 - [ ] Tests de integración con TUN simulada
 - [ ] x86 (i686) — target instalado, falta build
 
-**App Android** — APK de debug disponible en `outputs/`
+**App Android** — funcional, APK disponible en `outputs/`
 
-- [x] `GravitalVpnService` — modo cliente, TUN builder, protect(), anti-loop
-- [x] `GravitalServerService` — modo servidor, foreground service
-- [x] `SessionManager` — estado reactivo con StateFlow
-- [x] `EngineBridge` — JNI bridge con verificación de versión FFI
-- [x] UI — Home, Diagnóstico, Ajustes, tema Gravital
-- [x] Hilt DI, Coroutines, Navigation Compose
+- [x] `GravitalVpnService` — TUN builder, anti-loop, usa DNS/MTU del DataStore
+- [x] `GravitalServerService` — proxy foreground service
+- [x] `SessionManager` — estado reactivo con StateFlow, transiciones correctas
+- [x] `NetworkDiscovery` — detección automática de servidor en la red local
+- [x] `SettingsRepository` — persistencia real en DataStore (DNS, MTU, MCP)
+- [x] `EngineBridge` — JNI bridge, verificación de versión FFI en startup
+- [x] UI Material 3 — Home, Diagnóstico, Ajustes; tema claro/oscuro
+- [x] Auto-descubrimiento zero-config del proxy en hotspot
+- [x] Exportar logs vía `ACTION_SEND`
 - [x] `.so` para arm64-v8a, armeabi-v7a, x86_64
+- [ ] Integración completa engine ↔ app (networking real en curso)
 - [ ] Firma para release (keystore pendiente)
-- [ ] Icono definitivo (placeholder actual)
+- [ ] Icono definitivo
 
-**Pendiente — Fase 2**
+**Fase 2**
 
 - [ ] Cliente Windows (Rust + Wintun)
 - [ ] Beta interna
-- [ ] Infraestructura de soak test (24h)
+- [ ] Infraestructura de soak test (24 h)
 
 ## Licencia
 
