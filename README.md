@@ -61,14 +61,33 @@ gravital-share/
 
 ## Estado actual
 
-- ✅ Blueprint completo (este repositorio)
-- ⬜ Scaffold del workspace Rust
-- ⬜ Scaffold de la app Android
-- ⬜ Implementación del Modo Servidor (proxy local)
-- ⬜ Implementación del Modo Cliente (VpnService + tun↔socks)
-- ⬜ Cliente Windows (Wintun)
+- ✅ Blueprint completo (`docs/`)
+- ✅ Workspace Rust — 9 crates (`engine/`)
+  - ✅ `gravital-proto` — parsers IPv4/IPv6/TCP/UDP/ICMP con checksums
+  - ✅ `gravital-obs` — logs JSON gs.event.v1, endpoint MCP local
+  - ✅ `gravital-tun` — I/O async con la interfaz TUN (Android + Linux)
+  - ✅ `gravital-socks` — servidor y cliente SOCKS5 completo (RFC 1928) + UDP ASSOCIATE
+  - ✅ `gravital-http` — servidor HTTP CONNECT con detección de protocolo
+  - ✅ `gravital-stack` — wrapper de smoltcp para TCP/IP en espacio de usuario
+  - ✅ `gravital-dns` — interceptor sin fugas + canary leak check
+  - ✅ `gravital-udpgw` — multiplexor UDP-sobre-TCP (fallback badvpn-udpgw v1)
+  - ✅ `gravital-ffi` — superficie C + JNI para Android
+  - ✅ `gravital-engine` — orquestador + state machine completa
+- ✅ App Android (`android/`)
+  - ✅ `GravitalVpnService` — modo cliente, TUN builder, protect(), anti-loop
+  - ✅ `GravitalServerService` — modo servidor, foreground service
+  - ✅ `SessionManager` — estado reactivo con StateFlow, callbacks del engine
+  - ✅ `EngineBridge` — JNI bridge con verificación de versión FFI
+  - ✅ UI Jetpack Compose — Home, Diagnóstico, Ajustes, tema Gravital
+  - ✅ Hilt DI, Coroutines, Navigation
+- ✅ DevContainer reproducible
+- ✅ CI/CD — GitHub Actions (ci-pr.yml, nightly-fuzz.yml)
+- ✅ Scripts de build canónicos
+- ⬜ Integración smoltcp completa (fase Engine core)
+- ⬜ Tests de integración TUN simulada
+- ⬜ Fuzzing corpus activo
+- ⬜ Cliente Windows (Wintun) — Fase 2
 - ⬜ Beta interna
-- ⬜ Beta cerrada
 - ⬜ Lanzamiento público
 
 ## Licencia y autoría

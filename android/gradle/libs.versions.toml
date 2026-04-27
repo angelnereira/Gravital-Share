@@ -1,0 +1,68 @@
+[versions]
+agp                 = "8.7.3"
+kotlin              = "2.0.21"
+compose-bom         = "2024.12.01"
+hilt                = "2.52"
+coroutines          = "1.9.0"
+lifecycle           = "2.8.7"
+navigation          = "2.8.5"
+room                = "2.6.1"
+datastore           = "1.1.1"
+okhttp              = "4.12.0"
+detekt              = "1.23.7"
+ktlint-gradle       = "12.1.2"
+junit               = "4.13.2"
+junit-android       = "1.2.1"
+espresso            = "3.6.1"
+mockk               = "1.13.13"
+coroutines-test     = "1.9.0"
+compose-ui-test     = "1.7.6"
+
+[libraries]
+# AndroidX
+androidx-core-ktx          = { group = "androidx.core",       name = "core-ktx",              version = "1.15.0" }
+androidx-lifecycle-runtime  = { group = "androidx.lifecycle",  name = "lifecycle-runtime-ktx",  version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel= { group = "androidx.lifecycle",  name = "lifecycle-viewmodel-ktx",version.ref = "lifecycle" }
+androidx-lifecycle-compose  = { group = "androidx.lifecycle",  name = "lifecycle-runtime-compose",version.ref = "lifecycle" }
+androidx-activity-compose   = { group = "androidx.activity",   name = "activity-compose",       version = "1.9.3" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose",     version.ref = "navigation" }
+androidx-datastore          = { group = "androidx.datastore",  name = "datastore-preferences",  version.ref = "datastore" }
+
+# Compose BOM
+compose-bom         = { group = "androidx.compose",      name = "compose-bom",      version.ref = "compose-bom" }
+compose-ui          = { group = "androidx.compose.ui",   name = "ui" }
+compose-ui-graphics = { group = "androidx.compose.ui",   name = "ui-graphics" }
+compose-ui-tooling  = { group = "androidx.compose.ui",   name = "ui-tooling" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+compose-material3   = { group = "androidx.compose.material3", name = "material3" }
+compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
+
+# Hilt
+hilt-android        = { group = "com.google.dagger",     name = "hilt-android",     version.ref = "hilt" }
+hilt-compiler       = { group = "com.google.dagger",     name = "hilt-compiler",    version.ref = "hilt" }
+hilt-navigation     = { group = "androidx.hilt",         name = "hilt-navigation-compose", version = "1.2.0" }
+
+# Coroutines
+kotlinx-coroutines-core    = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core",    version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Serialization
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version = "1.7.3" }
+
+# Testing
+junit               = { group = "junit",                 name = "junit",            version.ref = "junit" }
+junit-android       = { group = "androidx.test.ext",     name = "junit",            version.ref = "junit-android" }
+espresso            = { group = "androidx.test.espresso", name = "espresso-core",   version.ref = "espresso" }
+mockk               = { group = "io.mockk",              name = "mockk",            version.ref = "mockk" }
+coroutines-test     = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines-test" }
+compose-ui-test     = { group = "androidx.compose.ui",   name = "ui-test-junit4",   version.ref = "compose-ui-test" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library     = { id = "com.android.library",     version.ref = "agp" }
+kotlin-android      = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose      = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization= { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+hilt                = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ksp                 = { id = "com.google.devtools.ksp", version = "2.0.21-1.0.28" }
+detekt              = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

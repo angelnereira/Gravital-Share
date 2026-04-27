@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Gravital Share</string>
+    <!-- Home -->
+    <string name="home_ready">Listo para conectar</string>
+    <string name="home_preparing">Preparando…</string>
+    <string name="home_connecting">Conectando…</string>
+    <string name="home_connected">Conectado</string>
+    <string name="home_reconnecting">Reconectando (intento %d)</string>
+    <string name="home_stopping">Cerrando…</string>
+    <string name="home_failed">Error de conexión</string>
+    <!-- Errors -->
+    <string name="err_ffi_version_mismatch">El motor de red no es compatible con esta versión de la app. Por favor actualiza.</string>
+    <string name="err_vpn_permission_denied">Permiso VPN denegado. Toca para intentarlo de nuevo.</string>
+    <string name="err_proxy_unreachable">No se puede conectar al proxy. Verifica que el dispositivo anfitrión esté en la misma red.</string>
+    <string name="err_dns_leak">Fuga de DNS detectada. La conexión es insegura.</string>
+    <!-- Notifications -->
+    <string name="notif_vpn_channel">Gravital Share VPN</string>
+    <string name="notif_server_channel">Gravital Share Servidor</string>
+    <!-- Diagnostics -->
+    <string name="diag_clear_logs">Limpiar logs</string>
+    <string name="diag_export_logs">Exportar</string>
+    <!-- Settings -->
+    <string name="settings_dns">Servidor DNS</string>
+    <string name="settings_mtu">MTU</string>
+    <string name="settings_mcp">Endpoint de diagnóstico MCP</string>
+    <string name="settings_mcp_desc">Solo loopback, requiere token, solo lectura</string>
+    <string name="settings_save">Guardar cambios</string>
+</resources>

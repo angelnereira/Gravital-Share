@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gravital-proto",
+    "crates/gravital-obs",
+    "crates/gravital-tun",
+    "crates/gravital-socks",
+    "crates/gravital-http",
+    "crates/gravital-stack",
+    "crates/gravital-dns",
+    "crates/gravital-udpgw",
+    "crates/gravital-ffi",
+    "crates/gravital-engine",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+authors = ["Nereira Technology and Business Solutions"]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
+smoltcp = { version = "0.11", default-features = false, features = [
+    "alloc",
+    "medium-ip",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-tcp",
+    "socket-udp",
+    "async",
+] }
+bytes = "1"
+parking_lot = "0.12"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+once_cell = "1"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+ulid = "1"
+httparse = "1"
+tokio-util = { version = "0.7", features = ["io"] }
+bitflags = "2"
+libc = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1

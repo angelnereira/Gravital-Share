@@ -1,0 +1,37 @@
+{
+  "name": "Gravital Share Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "fill-labs.dependi",
+        "vadimcn.vscode-lldb",
+        "mathiasfrohlich.Kotlin",
+        "vscjava.vscode-java-pack",
+        "redhat.java",
+        "vmware.vscode-spring-boot"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.features": "all",
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        }
+      }
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gradle,target=/root/.gradle,type=bind,consistency=cached",
+    "source=gravital-cargo-target,target=/workspaces/Gravital-Share/engine/target,type=volume"
+  ],
+  "postCreateCommand": "rustup component add rustfmt clippy rust-src && cargo install cargo-ndk cargo-deny cargo-audit cargo-fuzz --locked",
+  "remoteUser": "root"
+}

@@ -1,0 +1,18 @@
+[package]
+name = "gravital-tun"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+libc = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android: TUN FD comes from VpnService.Builder.establish()
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows: wintun crate — added when Windows support arrives
