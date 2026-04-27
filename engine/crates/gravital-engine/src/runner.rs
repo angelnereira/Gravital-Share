@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::config::{ClientConfig, EngineConfig, ServerConfig};
 use crate::error::EngineError;
 use crate::metrics::EngineMetrics;
-use crate::session::{FailureKind, PeerInfo, Session, SessionEvent, SessionMode};
+use crate::session::{FailureKind, PeerInfo, Session, SessionEvent, SessionMode, SessionState};
 
 /// FFI contract version — bump on any breaking change.
 pub const FFI_VERSION: u32 = 1;
@@ -65,6 +65,12 @@ impl Engine {
     }
 
     pub fn start_server(&self, cfg: ServerConfig) -> Result<(), EngineError> {
+        // If a previous session left us in a non-Idle state (e.g. Stopping / Failed),
+        // force-reset so the state machine accepts UserStart.
+        if self.session.state() != SessionState::Idle {
+            self.session.force_idle();
+            let _ = self.shutdown_tx.send(false);
+        }
         self.session.dispatch(SessionEvent::UserStart(SessionMode::Server))?;
 
         let session = self.session.clone();
@@ -102,7 +108,10 @@ impl Engine {
         if tun_fd < 0 {
             return Err(EngineError::InvalidFd);
         }
-
+        if self.session.state() != SessionState::Idle {
+            self.session.force_idle();
+            let _ = self.shutdown_tx.send(false);
+        }
         self.session.dispatch(SessionEvent::UserStart(SessionMode::Client))?;
         self.session.dispatch(SessionEvent::EngineReady)?;
 

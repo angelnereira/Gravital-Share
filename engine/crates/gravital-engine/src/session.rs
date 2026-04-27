@@ -111,6 +111,10 @@ impl Session {
         self.state.read().clone()
     }
 
+    pub fn force_idle(&self) {
+        *self.state.write() = SessionState::Idle;
+    }
+
     pub fn add_listener<F: Fn(&SessionState) + Send + Sync + 'static>(&self, f: F) {
         self.listeners.lock().push(Box::new(f));
     }
