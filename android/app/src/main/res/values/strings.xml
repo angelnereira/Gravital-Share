@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Gravital Share</string>
+    <string name="notif_channel_vpn">VPN</string>
+    <string name="notif_channel_server">Proxy Server</string>
+    <string name="notif_title_vpn_active">VPN tethering active</string>
+    <string name="notif_title_server_active">Proxy server running</string>
+</resources>

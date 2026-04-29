@@ -1,0 +1,23 @@
+# Rust build artifacts
+target/
+engine/target/
+
+# Android build artifacts
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android build caches (module-level)
+android/*/build/
+android/.kotlin/
+android/.gradle/

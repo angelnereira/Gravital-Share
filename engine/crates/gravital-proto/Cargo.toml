@@ -1,0 +1,16 @@
+[package]
+name = "gravital-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+bytes = { workspace = true }
+bitflags = { workspace = true }
+
+[dev-dependencies]
+
+[[bench]]
+name = "parsing"
+harness = false

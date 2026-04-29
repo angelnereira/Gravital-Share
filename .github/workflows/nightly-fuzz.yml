@@ -1,0 +1,37 @@
+name: Nightly Fuzzing
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fuzz-intensive:
+    name: Fuzzing intensive (2h per target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - name: Fuzz proto parsers
+        working-directory: engine
+        run: |
+          cargo fuzz run fuzz_proto_parse -- -max_total_time=7200 -artifact_prefix=crashes/ || true
+      - name: Upload corpus and crashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.run_id }}
+          path: engine/fuzz/
+      - name: Create issue on crash
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[Fuzzing] Crash detectado ' + new Date().toISOString().split('T')[0],
+              labels: ['security', 'fuzzing', 'P0'],
+              body: 'El fuzzing nocturno encontró un crash. Ver artifacts del run #${{ github.run_id }}.'
+            })

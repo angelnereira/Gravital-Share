@@ -1,0 +1,13 @@
+[package]
+name = "gravital-dns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+gravital-obs = { path = "../gravital-obs" }
+gravital-proto = { path = "../gravital-proto" }
