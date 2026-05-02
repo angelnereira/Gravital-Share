@@ -29,9 +29,16 @@ fn fire_jvm_event(json: String) {
         Ok(e) => e,
         Err(_) => return,
     };
-    let Ok(json_jstr) = env.new_string(&json) else { return };
-    let jval = JValue::from(json_jstr);
-    let _ = env.call_method(cb.as_obj(), "onEvent", "(Ljava/lang/String;)V", &[jval]);
+    if let Ok(json_jstr) = env.new_string(&json) {
+        // jni 0.21 has no From<JString> for JValue directly; go via JObject.
+        let json_obj = JObject::from(json_jstr);
+        let _ = env.call_method(
+            cb.as_obj(),
+            "onEvent",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(json_obj)],
+        );
+    }
 }
 
 macro_rules! ffi_catch {

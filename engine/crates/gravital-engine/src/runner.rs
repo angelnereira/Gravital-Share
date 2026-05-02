@@ -221,14 +221,13 @@ fn session_state_to_json(state: &SessionState) -> String {
         SessionState::Connecting { .. } =>
             r#"{"kind":"session.transition","to":"Connecting"}"#.to_owned(),
         SessionState::Connected { peer, .. } =>
-            format!(r#"{{"kind":"session.transition","to":"Connected","peer":"{}"}}"
-"#, peer.proxy_addr).trim_end().to_owned(),
+            format!("{{\"kind\":\"session.transition\",\"to\":\"Connected\",\"peer\":\"{}\"}}", peer.proxy_addr),
         SessionState::Reconnecting { .. } =>
             r#"{"kind":"session.transition","to":"Reconnecting"}"#.to_owned(),
         SessionState::Stopping { .. } =>
             r#"{"kind":"session.transition","to":"Stopping"}"#.to_owned(),
         SessionState::Failed { error, .. } =>
-            format!(r#"{{"kind":"session.transition","to":"Failed","error":"{error:?}"}}"#),
+            format!("{{\"kind\":\"session.transition\",\"to\":\"Failed\",\"error\":\"{error:?}\"}}"),
     }
 }
 
