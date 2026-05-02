@@ -3,10 +3,36 @@
 // Symbols defined only in dependency rlibs are not re-exported from a cdylib.
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JString};
+use jni::objects::{JClass, JObject, JString, JValue};
 use jni::sys::{jint, jstring};
+use std::sync::{Mutex, OnceLock};
 use crate::runner::FFI_VERSION;
 use crate::error::ffi_code;
+
+// ── JVM / callback globals ────────────────────────────────────────────────────
+
+/// JVM reference kept for attaching native Tokio threads when firing callbacks.
+static JVM_INSTANCE: OnceLock<jni::JavaVM> = OnceLock::new();
+
+/// GlobalRef to the Kotlin EventCallback instance registered by Kotlin.
+static EVENT_CALLBACK: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
+/// Called from the session listener (any Tokio thread) to invoke the Kotlin callback.
+fn fire_jvm_event(json: String) {
+    let Some(jvm) = JVM_INSTANCE.get() else { return };
+    let guard = match EVENT_CALLBACK.lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let Some(cb) = guard.as_ref() else { return };
+    let mut env = match jvm.attach_current_thread() {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let Ok(json_jstr) = env.new_string(&json) else { return };
+    let jval = JValue::from(json_jstr);
+    let _ = env.call_method(cb.as_obj(), "onEvent", "(Ljava/lang/String;)V", &[jval]);
+}
 
 macro_rules! ffi_catch {
     ($body:expr) => {
@@ -43,6 +69,44 @@ pub extern "system" fn Java_io_gravital_share_ffi_EngineBridge_init(
             Ok(()) => ffi_code::OK,
             Err(crate::error::EngineError::AlreadyInitialized) => ffi_code::OK,
             Err(_) => ffi_code::INVALID_ARG,
+        }
+    })
+}
+
+/// Register the Kotlin EventCallback so the engine can call back into JVM.
+/// Must be called before startClient / startServer to ensure events are delivered.
+#[no_mangle]
+pub extern "system" fn Java_io_gravital_share_ffi_EngineBridge_nativeSetEventCallback(
+    env: JNIEnv,
+    _class: JClass,
+    callback: JObject,
+) -> jint {
+    ffi_catch!({
+        // Store the JVM so Tokio threads can attach when firing callbacks.
+        if JVM_INSTANCE.get().is_none() {
+            match env.get_java_vm() {
+                Ok(jvm) => { let _ = JVM_INSTANCE.set(jvm); }
+                Err(_) => return ffi_code::INTERNAL_PANIC,
+            }
+        }
+
+        // Create a global ref that survives past this JNI call.
+        match env.new_global_ref(callback) {
+            Ok(global_ref) => {
+                if let Ok(mut guard) = EVENT_CALLBACK.lock() {
+                    *guard = Some(global_ref);
+                }
+            }
+            Err(_) => return ffi_code::INTERNAL_PANIC,
+        }
+
+        // Wire fire_jvm_event into the engine — initialises the engine if needed.
+        match get_or_init() {
+            Err(_) => ffi_code::NOT_INITIALIZED,
+            Ok(engine) => {
+                engine.set_event_callback(fire_jvm_event);
+                ffi_code::OK
+            }
         }
     })
 }
