@@ -36,7 +36,7 @@ fn fire_jvm_event(json: String) {
             cb.as_obj(),
             "onEvent",
             "(Ljava/lang/String;)V",
-            &[JValue::Object(json_obj)],
+            &[JValue::Object(&json_obj)],
         );
     }
 }
