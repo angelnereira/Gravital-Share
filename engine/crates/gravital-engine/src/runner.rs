@@ -20,7 +20,8 @@ pub struct Engine {
     session: Arc<Session>,
     metrics: Arc<EngineMetrics>,
     shutdown_tx: watch::Sender<bool>,
-    event_callback: Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>,
+    // Wrapped in Arc so the session listener closure can hold a reference.
+    event_callback: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
 }
 
 /// Global singleton — one engine per process.
@@ -42,12 +43,25 @@ impl Engine {
 
         let (shutdown_tx, _) = watch::channel(false);
 
+        let event_callback: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>> =
+            Arc::new(Mutex::new(None));
+        let session = Arc::new(Session::new());
+
+        // Wire every session state change to event_callback so Kotlin
+        // receives transition JSON and can update its own state flow.
+        let cb = Arc::clone(&event_callback);
+        session.add_listener(move |state| {
+            if let Some(f) = cb.lock().as_ref() {
+                f(session_state_to_json(state));
+            }
+        });
+
         Ok(Arc::new(Self {
             runtime,
-            session: Arc::new(Session::new()),
+            session,
             metrics: EngineMetrics::new(),
             shutdown_tx,
-            event_callback: Mutex::new(None),
+            event_callback,
         }))
     }
 
@@ -193,6 +207,27 @@ impl Engine {
 
     pub fn set_event_callback<F: Fn(String) + Send + Sync + 'static>(&self, f: F) {
         *self.event_callback.lock() = Some(Box::new(f));
+    }
+}
+
+// ── Session state → JSON transition event ────────────────────────────────────
+
+fn session_state_to_json(state: &SessionState) -> String {
+    match state {
+        SessionState::Idle =>
+            r#"{"kind":"session.transition","to":"Idle"}"#.to_owned(),
+        SessionState::Preparing { .. } =>
+            r#"{"kind":"session.transition","to":"Preparing"}"#.to_owned(),
+        SessionState::Connecting { .. } =>
+            r#"{"kind":"session.transition","to":"Connecting"}"#.to_owned(),
+        SessionState::Connected { peer, .. } =>
+            format!("{{\"kind\":\"session.transition\",\"to\":\"Connected\",\"peer\":\"{}\"}}", peer.proxy_addr),
+        SessionState::Reconnecting { .. } =>
+            r#"{"kind":"session.transition","to":"Reconnecting"}"#.to_owned(),
+        SessionState::Stopping { .. } =>
+            r#"{"kind":"session.transition","to":"Stopping"}"#.to_owned(),
+        SessionState::Failed { error, .. } =>
+            format!("{{\"kind\":\"session.transition\",\"to\":\"Failed\",\"error\":\"{error:?}\"}}"),
     }
 }
 

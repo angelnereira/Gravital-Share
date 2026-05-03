@@ -25,14 +25,17 @@ object EngineBridge {
     external fun getStats(): String
 
     // Telemetry callback
-    // Stored on the Kotlin side; native code reaches it via a JNI global ref
-    // that will be registered once the tokio runtime is running in the engine.
+    // Kotlin stores the instance; nativeSetEventCallback passes a GlobalRef to
+    // the native engine so Tokio threads can call onEvent() directly.
 
     @Volatile private var _eventCallback: EventCallback? = null
 
     fun setEventCallback(callback: EventCallback) {
         _eventCallback = callback
+        nativeSetEventCallback(callback)
     }
+
+    private external fun nativeSetEventCallback(callback: EventCallback)
 
     fun interface EventCallback {
         fun onEvent(jsonEvent: String)
