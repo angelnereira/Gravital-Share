@@ -77,8 +77,17 @@ fun SettingsScreen(
                 SettingsTextField(
                     value          = state.dnsServer,
                     onValueChange  = viewModel::onDnsChanged,
-                    label          = "Servidor DNS",
+                    label          = "DNS primario",
                     placeholder    = "1.1.1.1",
+                    icon           = Icons.Outlined.Dns,
+                    keyboardType   = KeyboardType.Uri
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 4.dp))
+                SettingsTextField(
+                    value          = state.dnsServerSecondary,
+                    onValueChange  = viewModel::onDnsSecondaryChanged,
+                    label          = "DNS secundario",
+                    placeholder    = "8.8.8.8",
                     icon           = Icons.Outlined.Dns,
                     keyboardType   = KeyboardType.Uri
                 )

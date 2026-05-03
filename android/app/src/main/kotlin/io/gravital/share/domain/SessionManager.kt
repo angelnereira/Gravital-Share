@@ -59,7 +59,13 @@ class SessionManager @Inject constructor(
         }
     }
 
-    fun startClient(tunFd: Int, proxyAddr: String, mtu: Int = 1280, dnsServer: String = "1.1.1.1") {
+    fun startClient(
+        tunFd: Int,
+        proxyAddr: String,
+        mtu: Int = 1280,
+        dnsServer: String = "1.1.1.1",
+        dnsServerSecondary: String = "8.8.8.8",
+    ) {
         scope.launch {
             _mode.value = SessionMode.CLIENT
             _state.value = SessionState.Preparing(SessionMode.CLIENT)
@@ -69,7 +75,8 @@ class SessionManager @Inject constructor(
                   "mode": "Client",
                   "proxy_addr": "$proxyAddr",
                   "mtu": $mtu,
-                  "dns_server": "$dnsServer"
+                  "dns_server": "$dnsServer",
+                  "dns_server_secondary": "$dnsServerSecondary"
                 }
             """.trimIndent()
 
@@ -141,6 +148,10 @@ class SessionManager @Inject constructor(
                 kind == "engine.metrics.snapshot" -> {
                     val bytes = extractJsonLong(json, "bytes_out") ?: 0L
                     _throughput.value = bytes
+                }
+                kind == "engine.client_count" -> {
+                    val count = extractJsonLong(json, "count")?.toInt() ?: 0
+                    _clientCount.value = count
                 }
             }
         } catch (e: Exception) {

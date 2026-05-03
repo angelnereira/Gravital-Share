@@ -64,6 +64,7 @@ class GravitalVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .addRoute("::", 0)
                 .addDnsServer(settings.dnsServer)
+                .addDnsServer(settings.dnsServerSecondary)
                 .setMtu(settings.mtu)
                 .setBlocking(false)
                 .addDisallowedApplication(packageName)
@@ -77,7 +78,7 @@ class GravitalVpnService : VpnService() {
             }
 
             tunFd = tunParcel.detachFd()
-            sessionManager.startClient(tunFd, proxyAddr, settings.mtu, settings.dnsServer)
+            sessionManager.startClient(tunFd, proxyAddr, settings.mtu, settings.dnsServer, settings.dnsServerSecondary)
             updateNotification("Túnel activo · verificando internet…")
 
             // Give the engine ~2 s to wire up the SOCKS relay, then probe.

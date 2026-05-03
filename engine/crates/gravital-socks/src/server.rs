@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
@@ -26,11 +27,21 @@ impl Default for ServerConfig {
 
 pub struct SocksServer {
     config: Arc<ServerConfig>,
+    /// Current number of active SOCKS connections.
+    active_connections: Arc<AtomicU32>,
 }
 
 impl SocksServer {
     pub fn new(config: ServerConfig) -> Self {
-        Self { config: Arc::new(config) }
+        Self {
+            config: Arc::new(config),
+            active_connections: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    /// Returns a shared handle to the active-connection counter.
+    pub fn active_connections(&self) -> Arc<AtomicU32> {
+        self.active_connections.clone()
     }
 
     pub async fn run(&self, mut shutdown: watch::Receiver<bool>) -> Result<(), SocksError> {
@@ -46,10 +57,13 @@ impl SocksServer {
                     match accept {
                         Ok((stream, peer)) => {
                             let cfg = self.config.clone();
+                            let counter = self.active_connections.clone();
+                            counter.fetch_add(1, Ordering::Relaxed);
                             tokio::spawn(async move {
                                 if let Err(e) = handle_connection(stream, peer, cfg).await {
                                     warn!(kind = "socks.connection.error", peer = %peer, error = %e);
                                 }
+                                counter.fetch_sub(1, Ordering::Relaxed);
                             });
                         }
                         Err(e) => {

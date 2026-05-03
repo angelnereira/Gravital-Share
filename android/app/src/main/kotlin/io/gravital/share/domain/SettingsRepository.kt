@@ -20,23 +20,26 @@ class SettingsRepository @Inject constructor(
 
     val settings: Flow<AppSettings> = ds.data.map { p ->
         AppSettings(
-            dnsServer          = p[KEY_DNS] ?: "1.1.1.1",
-            mtu                = p[KEY_MTU] ?: 1280,
-            mcpEndpointEnabled = p[KEY_MCP] ?: false,
+            dnsServer          = p[KEY_DNS]           ?: "1.1.1.1",
+            dnsServerSecondary = p[KEY_DNS_SECONDARY] ?: "8.8.8.8",
+            mtu                = p[KEY_MTU]           ?: 1280,
+            mcpEndpointEnabled = p[KEY_MCP]           ?: false,
         )
     }
 
     suspend fun save(s: AppSettings) {
         ds.edit { p ->
-            p[KEY_DNS] = s.dnsServer
-            p[KEY_MTU] = s.mtu
-            p[KEY_MCP] = s.mcpEndpointEnabled
+            p[KEY_DNS]           = s.dnsServer
+            p[KEY_DNS_SECONDARY] = s.dnsServerSecondary
+            p[KEY_MTU]           = s.mtu
+            p[KEY_MCP]           = s.mcpEndpointEnabled
         }
     }
 
     companion object {
-        private val KEY_DNS = stringPreferencesKey("dns_server")
-        private val KEY_MTU = intPreferencesKey("mtu")
-        private val KEY_MCP = booleanPreferencesKey("mcp_endpoint")
+        private val KEY_DNS           = stringPreferencesKey("dns_server")
+        private val KEY_DNS_SECONDARY = stringPreferencesKey("dns_server_secondary")
+        private val KEY_MTU           = intPreferencesKey("mtu")
+        private val KEY_MCP           = booleanPreferencesKey("mcp_endpoint")
     }
 }

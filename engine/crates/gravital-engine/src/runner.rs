@@ -102,10 +102,30 @@ impl Engine {
 
         self.session.dispatch(SessionEvent::EngineReady)?;
 
+        let conn_counter = socks_srv.active_connections();
+        let event_cb = Arc::clone(&self.event_callback);
+
         self.runtime.spawn(async move {
             let peer = PeerInfo { proxy_addr: cfg.socks_bind };
             let _ = session.dispatch(SessionEvent::ProxyConnected(peer));
             info!(kind = "engine.server.running");
+
+            // Poll the SOCKS connection counter and fire events on changes.
+            let counter = conn_counter.clone();
+            let cb = event_cb.clone();
+            tokio::spawn(async move {
+                let mut last = u32::MAX; // force first emission at 0
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let current = counter.load(std::sync::atomic::Ordering::Relaxed);
+                    if current != last {
+                        last = current;
+                        if let Some(f) = cb.lock().as_ref() {
+                            f(format!("{{\"kind\":\"engine.client_count\",\"count\":{}}}", current));
+                        }
+                    }
+                }
+            });
 
             let sr = shutdown_rx.clone();
             let hr = shutdown_rx.clone();
@@ -164,7 +184,7 @@ impl Engine {
             ));
 
             let dns_interceptor = Arc::new(gravital_dns::DnsInterceptor::new(
-                gravital_dns::DnsResolver::new(cfg.dns_server),
+                gravital_dns::DnsResolver::new(cfg.dns_server, cfg.dns_server_secondary, cfg.proxy_addr),
             ));
 
             let peer = PeerInfo { proxy_addr: cfg.proxy_addr };
