@@ -25,6 +25,7 @@ data class HomeUiState(
     val connectedClients: Int      = 0,
     val discovering: Boolean       = false,
     val discoveryError: String?    = null,
+    val hotspotRequired: Boolean   = false,
 )
 
 @HiltViewModel
@@ -36,19 +37,24 @@ class HomeViewModel @Inject constructor(
 
     sealed class UiEvent {
         data class RequestVpnPermission(val proxyAddr: String) : UiEvent()
+        object OpenHotspotSettings : UiEvent()
     }
 
     val events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
 
     private data class Discovery(val discovering: Boolean = false, val error: String? = null)
     private val _discovery = MutableStateFlow(Discovery())
+    private val _hotspotRequired = MutableStateFlow(false)
     private var discoveryJob: Job? = null
 
     val uiState: StateFlow<HomeUiState> = combine(
         combine(sessionManager.mode, sessionManager.state) { m, s -> m to s },
         combine(sessionManager.throughput, sessionManager.clientCount) { t, c -> t to c },
         _discovery,
-    ) { (mode, state), (throughput, clients), disc ->
+        _hotspotRequired,
+    ) { modeState, throughputClients, disc, hotspotReq ->
+        val (mode, state) = modeState
+        val (throughput, clients) = throughputClients
         HomeUiState(
             mode             = mode,
             sessionState     = state,
@@ -56,12 +62,19 @@ class HomeViewModel @Inject constructor(
             connectedClients = clients,
             discovering      = disc.discovering,
             discoveryError   = disc.error,
+            hotspotRequired  = hotspotReq,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
 
-    // ── Client: auto-discover proxy on current WiFi, then request VPN permission
+    // ── Client: check WiFi first, then auto-discover proxy, then request VPN permission
 
     fun startClientMode() {
+        if (!networkDiscovery.isWifiConnected()) {
+            _discovery.value = Discovery(
+                error = "No hay WiFi activo.\nConéctate al punto de acceso del servidor antes de iniciar."
+            )
+            return
+        }
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch {
             _discovery.value = Discovery(discovering = true)
@@ -96,13 +109,26 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    // ── Server: start proxy on hotspot interface ───────────────────────────────
+    // ── Server: check hotspot is active before starting ────────────────────────
 
     fun startServerMode() {
+        if (!networkDiscovery.isHotspotActive()) {
+            _hotspotRequired.value = true
+            return
+        }
         ctx.startForegroundService(
             Intent(ctx, GravitalServerService::class.java)
                 .setAction(GravitalServerService.ACTION_START)
         )
+    }
+
+    fun dismissHotspotDialog() {
+        _hotspotRequired.value = false
+    }
+
+    fun openHotspotSettings() {
+        _hotspotRequired.value = false
+        viewModelScope.launch { events.emit(UiEvent.OpenHotspotSettings) }
     }
 
     // ── QR fallback ───────────────────────────────────────────────────────────

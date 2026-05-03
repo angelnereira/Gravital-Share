@@ -1,7 +1,9 @@
 package io.gravital.share.ui.screens
 
 import android.app.Activity
+import android.content.Intent
 import android.net.VpnService
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -72,6 +74,17 @@ fun HomeScreen(
                         vpnLauncher.launch(intent)
                     } else {
                         viewModel.connectWithProxy(event.proxyAddr)
+                    }
+                }
+                is HomeViewModel.UiEvent.OpenHotspotSettings -> {
+                    runCatching {
+                        context.startActivity(Intent("android.settings.TETHER_SETTINGS").apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    }.onFailure {
+                        context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
                     }
                 }
             }
@@ -265,6 +278,27 @@ fun HomeScreen(
         } else {
             showFileShareDialog = false
         }
+    }
+
+    // Hotspot required dialog
+    if (uiState.hotspotRequired) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissHotspotDialog,
+            icon = { Icon(Icons.Filled.WifiTethering, null) },
+            title = { Text("Punto de acceso requerido") },
+            text = {
+                Text(
+                    "Para compartir internet debes activar el punto de acceso (hotspot) " +
+                    "de este dispositivo. ¿Quieres ir a los ajustes ahora?"
+                )
+            },
+            confirmButton = {
+                Button(onClick = viewModel::openHotspotSettings) { Text("Abrir ajustes") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissHotspotDialog) { Text("Cancelar") }
+            }
+        )
     }
 }
 
