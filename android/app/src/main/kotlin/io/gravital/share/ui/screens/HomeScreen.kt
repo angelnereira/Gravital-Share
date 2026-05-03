@@ -46,7 +46,8 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var pendingProxy by remember { mutableStateOf<String?>(null) }
-    var showServerQrDialog by remember { mutableStateOf(false) }
+    var showServerQrDialog   by remember { mutableStateOf(false) }
+    var showFileShareDialog  by remember { mutableStateOf(false) }
 
     val vpnLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -227,21 +228,42 @@ fun HomeScreen(
             // Server info
             if (uiState.sessionState is SessionState.Connected && uiState.mode == SessionMode.SERVER) {
                 ServerInfoCard(
-                    clientCount = uiState.connectedClients,
-                    onShowQr    = { showServerQrDialog = true }
+                    clientCount     = uiState.connectedClients,
+                    onShowQr        = { showServerQrDialog = true },
+                    onShowFileShare = { showFileShareDialog = true }
                 )
                 Spacer(Modifier.height(16.dp))
             }
         }
     }
 
-    // QR dialog shown when server taps the QR button
+    // QR dialog — proxy connection (for client app)
     if (showServerQrDialog) {
         val qrContent = remember { viewModel.getServerQrContent() }
         if (qrContent != null) {
-            QrCodeDialog(content = qrContent, onDismiss = { showServerQrDialog = false })
+            QrCodeDialog(
+                title   = "Código QR del servidor",
+                hint    = "El cliente escanea este código si la detección automática no funciona",
+                content = qrContent,
+                onDismiss = { showServerQrDialog = false }
+            )
         } else {
             showServerQrDialog = false
+        }
+    }
+
+    // QR dialog — file share URL (for any browser)
+    if (showFileShareDialog) {
+        val url = remember { viewModel.getFileShareUrl() }
+        if (url != null) {
+            QrCodeDialog(
+                title   = "Compartir archivos",
+                hint    = "Abre esta URL en el navegador de cualquier dispositivo conectado",
+                content = url,
+                onDismiss = { showFileShareDialog = false }
+            )
+        } else {
+            showFileShareDialog = false
         }
     }
 }
@@ -492,7 +514,7 @@ fun EngineErrorCard(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun ServerInfoCard(clientCount: Int, onShowQr: () -> Unit) {
+fun ServerInfoCard(clientCount: Int, onShowQr: () -> Unit, onShowFileShare: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -523,9 +545,17 @@ fun ServerInfoCard(clientCount: Int, onShowQr: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
                 )
             }
+            // QR to connect a new client
             IconButton(onClick = onShowQr) {
                 Icon(
-                    Icons.Outlined.QrCode2, "Mostrar QR",
+                    Icons.Outlined.QrCode2, "Mostrar QR de conexión",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            // QR / URL for the file sharing browser
+            IconButton(onClick = onShowFileShare) {
+                Icon(
+                    Icons.Outlined.FolderOpen, "Compartir archivos",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
@@ -562,12 +592,17 @@ fun StatusOrb(state: SessionState, discovering: Boolean = false) {
 }
 
 @Composable
-fun QrCodeDialog(content: String, onDismiss: () -> Unit) {
+fun QrCodeDialog(
+    content: String,
+    onDismiss: () -> Unit,
+    title: String = "Código QR del servidor",
+    hint: String = "El cliente escanea este código si la detección automática no funciona",
+) {
     val bitmap = remember(content) { QrCodeHelper.generateQrBitmap(content, 512) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Código QR del servidor", fontWeight = FontWeight.SemiBold)
+            Text(title, fontWeight = FontWeight.SemiBold)
         },
         text = {
             Column(
@@ -591,7 +626,7 @@ fun QrCodeDialog(content: String, onDismiss: () -> Unit) {
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    "El cliente escanea este código si la detección automática no funciona",
+                    hint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center

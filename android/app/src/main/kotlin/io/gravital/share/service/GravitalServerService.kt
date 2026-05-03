@@ -13,7 +13,9 @@ import javax.inject.Inject
 
 /**
  * Proxy server service (Modo Servidor).
- * Starts the SOCKS5 + HTTP CONNECT proxy on the hotspot interface.
+ * Starts the SOCKS5 + HTTP CONNECT proxy on the hotspot interface AND
+ * the embedded file-sharing HTTP server on port 7878.
+ * Both start and stop together — no user configuration required.
  */
 @AndroidEntryPoint
 class GravitalServerService : LifecycleService() {
@@ -34,6 +36,7 @@ class GravitalServerService : LifecycleService() {
     @Inject lateinit var sessionManager: SessionManager
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var fileShareServer: FileShareServer? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -49,19 +52,24 @@ class GravitalServerService : LifecycleService() {
         val http  = intent.getStringExtra(EXTRA_HTTP)  ?: DEFAULT_HTTP
 
         startForeground(NOTIFICATION_ID, buildNotification(
-            "Compartiendo — SOCKS5 :1080 · HTTP :8080"
+            "SOCKS5 :1080 · HTTP :8080 · Archivos :${FileShareServer.PORT}"
         ))
 
         GravitalLog.info(
             kind = "server_service.starting",
-            payload = mapOf("socks" to socks, "http" to http)
+            payload = mapOf("socks" to socks, "http" to http, "files" to FileShareServer.PORT)
         )
+
+        // Start file sharing server alongside the proxy
+        fileShareServer = FileShareServer(applicationContext).also { it.start() }
 
         scope.launch { sessionManager.startServer(socks, http) }
     }
 
     private fun stopServer() {
         GravitalLog.info(kind = "server_service.stopping")
+        fileShareServer?.stop()
+        fileShareServer = null
         scope.launch { sessionManager.stop() }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -69,6 +77,7 @@ class GravitalServerService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        fileShareServer?.stop()
         scope.cancel()
     }
 

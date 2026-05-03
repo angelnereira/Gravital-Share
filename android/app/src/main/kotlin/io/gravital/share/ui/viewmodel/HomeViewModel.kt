@@ -10,6 +10,7 @@ import io.gravital.share.domain.NetworkDiscovery
 import io.gravital.share.domain.SessionManager
 import io.gravital.share.domain.SessionMode
 import io.gravital.share.domain.SessionState
+import io.gravital.share.service.FileShareServer
 import io.gravital.share.service.GravitalServerService
 import io.gravital.share.service.GravitalVpnService
 import kotlinx.coroutines.Job
@@ -123,17 +124,25 @@ class HomeViewModel @Inject constructor(
     fun getServerQrContent(): String? =
         networkDiscovery.getServerAddresses().firstOrNull()?.let { "$it:1080" }
 
+    // Returns the file-share browser URL for the server device
+    fun getFileShareUrl(): String? =
+        networkDiscovery.getServerAddresses().firstOrNull()?.let { "http://$it:${FileShareServer.PORT}" }
+
     // ── Stop current session ───────────────────────────────────────────────────
 
     fun stop() {
         viewModelScope.launch {
-            val state = uiState.value.sessionState
             sessionManager.stop()
-            if (state is SessionState.Connected && state.mode == SessionMode.SERVER) {
-                ctx.startService(
+            when (uiState.value.mode) {
+                SessionMode.SERVER -> ctx.startService(
                     Intent(ctx, GravitalServerService::class.java)
                         .setAction(GravitalServerService.ACTION_STOP)
                 )
+                SessionMode.CLIENT -> ctx.startService(
+                    Intent(ctx, GravitalVpnService::class.java)
+                        .setAction(GravitalVpnService.ACTION_STOP)
+                )
+                SessionMode.IDLE -> { /* nothing to stop */ }
             }
         }
     }
