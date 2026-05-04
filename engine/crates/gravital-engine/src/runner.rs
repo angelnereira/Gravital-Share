@@ -110,14 +110,14 @@ impl Engine {
             let _ = session.dispatch(SessionEvent::ProxyConnected(peer));
             info!(kind = "engine.server.running");
 
-            // Poll the SOCKS connection counter and fire events on changes.
+            // Poll the device counter and fire events on changes.
             let counter = conn_counter.clone();
             let cb = event_cb.clone();
             tokio::spawn(async move {
                 let mut last = u32::MAX; // force first emission at 0
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let current = counter.load(std::sync::atomic::Ordering::Relaxed);
+                    let current = counter.device_count();
                     if current != last {
                         last = current;
                         if let Some(f) = cb.lock().as_ref() {

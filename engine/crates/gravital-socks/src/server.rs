@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
@@ -25,23 +25,49 @@ impl Default for ServerConfig {
     }
 }
 
+/// Tracks how many active SOCKS connections each client IP has.
+/// `device_count()` returns the number of distinct IPs with at least one
+/// active connection — i.e. the real "devices connected" count.
+#[derive(Default)]
+pub struct DeviceCounter {
+    map: Mutex<HashMap<IpAddr, u32>>,
+}
+
+impl DeviceCounter {
+    pub fn register(&self, ip: IpAddr) {
+        *self.map.lock().unwrap().entry(ip).or_insert(0) += 1;
+    }
+
+    pub fn unregister(&self, ip: IpAddr) {
+        let mut m = self.map.lock().unwrap();
+        if let Some(c) = m.get_mut(&ip) {
+            *c -= 1;
+            if *c == 0 { m.remove(&ip); }
+        }
+    }
+
+    pub fn device_count(&self) -> u32 {
+        self.map.lock().unwrap().len() as u32
+    }
+}
+
 pub struct SocksServer {
     config: Arc<ServerConfig>,
-    /// Current number of active SOCKS connections.
-    active_connections: Arc<AtomicU32>,
+    /// Tracks unique client IPs with active connections.
+    devices: Arc<DeviceCounter>,
 }
 
 impl SocksServer {
     pub fn new(config: ServerConfig) -> Self {
         Self {
             config: Arc::new(config),
-            active_connections: Arc::new(AtomicU32::new(0)),
+            devices: Arc::new(DeviceCounter::default()),
         }
     }
 
-    /// Returns a shared handle to the active-connection counter.
-    pub fn active_connections(&self) -> Arc<AtomicU32> {
-        self.active_connections.clone()
+    /// Returns a shared handle to the device counter.
+    pub fn active_connections(&self) -> Arc<DeviceCounter> {
+        self.devices.clone()
     }
 
     pub async fn run(&self, mut shutdown: watch::Receiver<bool>) -> Result<(), SocksError> {
@@ -57,13 +83,14 @@ impl SocksServer {
                     match accept {
                         Ok((stream, peer)) => {
                             let cfg = self.config.clone();
-                            let counter = self.active_connections.clone();
-                            counter.fetch_add(1, Ordering::Relaxed);
+                            let devices = self.devices.clone();
+                            let peer_ip = peer.ip();
+                            devices.register(peer_ip);
                             tokio::spawn(async move {
                                 if let Err(e) = handle_connection(stream, peer, cfg).await {
                                     warn!(kind = "socks.connection.error", peer = %peer, error = %e);
                                 }
-                                counter.fetch_sub(1, Ordering::Relaxed);
+                                devices.unregister(peer_ip);
                             });
                         }
                         Err(e) => {

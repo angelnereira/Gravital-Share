@@ -170,7 +170,10 @@ impl Inner {
         let tx_buf = tcp::SocketBuffer::new(vec![0u8; SOCK_BUF]);
         let mut socket = tcp::Socket::new(rx_buf, tx_buf);
 
-        let endpoint = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address(IFACE_IP.octets())), vport);
+        // Bind to unspecified address so smoltcp accepts packets for ANY dst IP.
+        // Inbound packets are rewritten to vport but retain the original dst IP
+        // (e.g. 8.8.8.8:vport). A specific-IP listen endpoint would reject them.
+        let endpoint = IpEndpoint::new(IpAddress::Unspecified, vport);
         if let Err(e) = socket.listen(endpoint) {
             warn!(kind = "stack.listen_failed", vport, error = ?e);
             return;

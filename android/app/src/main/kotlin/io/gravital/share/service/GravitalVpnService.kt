@@ -62,7 +62,6 @@ class GravitalVpnService : VpnService() {
                 .setSession("Gravital Share")
                 .addAddress(DEFAULT_VPN_IP, 32)
                 .addRoute("0.0.0.0", 0)
-                .addRoute("::", 0)
                 .addDnsServer(settings.dnsServer)
                 .addDnsServer(settings.dnsServerSecondary)
                 .setMtu(settings.mtu)
