@@ -83,6 +83,7 @@ class GravitalVpnService : VpnService() {
             // Give the engine ~2 s to wire up the SOCKS relay, then probe.
             delay(2_000)
             val ok = probeInternetViaSocks(proxyAddr)
+            sessionManager.reportInternetStatus(ok)
             if (ok) {
                 GravitalLog.info(kind = "vpn_service.internet_verified")
                 updateNotification("Conectado · Internet ✓")

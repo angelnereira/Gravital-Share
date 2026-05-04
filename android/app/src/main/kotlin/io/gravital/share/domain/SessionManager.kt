@@ -15,6 +15,8 @@ import javax.inject.Singleton
 
 enum class SessionMode { IDLE, CLIENT, SERVER }
 
+enum class InternetStatus { VERIFYING, OK, UNREACHABLE }
+
 sealed class SessionState {
     object Idle : SessionState()
     data class Preparing(val mode: SessionMode) : SessionState()
@@ -42,6 +44,9 @@ class SessionManager @Inject constructor(
     private val _clientCount = MutableStateFlow(0)
     val clientCount: StateFlow<Int> = _clientCount.asStateFlow()
 
+    private val _internetStatus = MutableStateFlow<InternetStatus?>(null)
+    val internetStatus: StateFlow<InternetStatus?> = _internetStatus.asStateFlow()
+
     private val _engineEvents = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 64)
     val engineEvents: SharedFlow<String> = _engineEvents.asSharedFlow()
 
@@ -59,6 +64,10 @@ class SessionManager @Inject constructor(
         }
     }
 
+    fun reportInternetStatus(ok: Boolean) {
+        _internetStatus.value = if (ok) InternetStatus.OK else InternetStatus.UNREACHABLE
+    }
+
     fun startClient(
         tunFd: Int,
         proxyAddr: String,
@@ -69,6 +78,7 @@ class SessionManager @Inject constructor(
         scope.launch {
             _mode.value = SessionMode.CLIENT
             _state.value = SessionState.Preparing(SessionMode.CLIENT)
+            _internetStatus.value = InternetStatus.VERIFYING
 
             val config = """
                 {
@@ -128,12 +138,14 @@ class SessionManager @Inject constructor(
             engineBridge.stop()
             _state.value = SessionState.Idle
             _mode.value = SessionMode.IDLE
+            _internetStatus.value = null
         }
     }
 
     fun acknowledgeError() {
         _state.value = SessionState.Idle
         _mode.value = SessionMode.IDLE
+        _internetStatus.value = null
     }
 
     private fun handleEngineEvent(json: String) {

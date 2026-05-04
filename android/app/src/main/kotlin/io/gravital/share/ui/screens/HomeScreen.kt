@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.gravital.share.ui.PortraitCaptureActivity
+import io.gravital.share.domain.InternetStatus
 import io.gravital.share.domain.QrCodeHelper
 import io.gravital.share.domain.SessionMode
 import io.gravital.share.domain.SessionState
@@ -128,22 +129,36 @@ fun HomeScreen(
 
             // Status orb
             StatusOrb(
-                state = uiState.sessionState,
-                discovering = uiState.discovering
+                state          = uiState.sessionState,
+                mode           = uiState.mode,
+                internetStatus = uiState.internetStatus,
+                discovering    = uiState.discovering,
             )
 
             Spacer(Modifier.height(28.dp))
 
-            // Primary status text
+            // Primary status text — for client Connected, reflect real internet probe result
+            val isClientConnected = uiState.sessionState is SessionState.Connected
+                && uiState.mode == SessionMode.CLIENT
             Text(
                 text = when {
                     uiState.discovering -> "Buscando en la red…"
+                    isClientConnected -> when (uiState.internetStatus) {
+                        InternetStatus.OK          -> "Conectado"
+                        InternetStatus.UNREACHABLE -> "Sin internet"
+                        else                       -> "Verificando internet…"
+                    }
                     else -> uiState.sessionState.primaryLabel()
                 },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Medium,
                 color = when {
                     uiState.discovering -> GravitalColors.StatusAmber
+                    isClientConnected -> when (uiState.internetStatus) {
+                        InternetStatus.OK          -> GravitalColors.StatusGreen
+                        InternetStatus.UNREACHABLE -> GravitalColors.StatusRed
+                        else                       -> GravitalColors.StatusAmber
+                    }
                     else -> uiState.sessionState.orbColor()
                 },
                 textAlign = TextAlign.Center
@@ -598,10 +613,25 @@ fun ServerInfoCard(clientCount: Int, onShowQr: () -> Unit, onShowFileShare: () -
 }
 
 @Composable
-fun StatusOrb(state: SessionState, discovering: Boolean = false) {
-    val color = if (discovering) GravitalColors.StatusAmber else state.orbColor()
+fun StatusOrb(
+    state: SessionState,
+    mode: SessionMode = SessionMode.IDLE,
+    internetStatus: InternetStatus? = null,
+    discovering: Boolean = false,
+) {
+    val isClientConnected = state is SessionState.Connected && mode == SessionMode.CLIENT
+    val color = when {
+        discovering -> GravitalColors.StatusAmber
+        isClientConnected -> when (internetStatus) {
+            InternetStatus.OK          -> GravitalColors.StatusGreen
+            InternetStatus.UNREACHABLE -> GravitalColors.StatusRed
+            else                       -> GravitalColors.StatusAmber
+        }
+        else -> state.orbColor()
+    }
     val isPulsing = discovering || state is SessionState.Preparing
         || state is SessionState.Reconnecting || state is SessionState.Connecting
+        || (isClientConnected && internetStatus != InternetStatus.OK && internetStatus != InternetStatus.UNREACHABLE)
 
     val pulse = rememberInfiniteTransition(label = "pulse")
     val scale by pulse.animateFloat(

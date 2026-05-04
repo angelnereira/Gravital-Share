@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.gravital.share.domain.InternetStatus
 import io.gravital.share.domain.NetworkDiscovery
 import io.gravital.share.domain.SessionManager
 import io.gravital.share.domain.SessionMode
@@ -26,6 +27,7 @@ data class HomeUiState(
     val discovering: Boolean       = false,
     val discoveryError: String?    = null,
     val hotspotRequired: Boolean   = false,
+    val internetStatus: InternetStatus? = null,
 )
 
 @HiltViewModel
@@ -50,11 +52,12 @@ class HomeViewModel @Inject constructor(
     val uiState: StateFlow<HomeUiState> = combine(
         combine(sessionManager.mode, sessionManager.state) { m, s -> m to s },
         combine(sessionManager.throughput, sessionManager.clientCount) { t, c -> t to c },
-        _discovery,
-        _hotspotRequired,
-    ) { modeState, throughputClients, disc, hotspotReq ->
+        combine(_discovery, _hotspotRequired) { d, h -> d to h },
+        sessionManager.internetStatus,
+    ) { modeState, throughputClients, discHotspot, internetStatus ->
         val (mode, state) = modeState
         val (throughput, clients) = throughputClients
+        val (disc, hotspotReq) = discHotspot
         HomeUiState(
             mode             = mode,
             sessionState     = state,
@@ -63,6 +66,7 @@ class HomeViewModel @Inject constructor(
             discovering      = disc.discovering,
             discoveryError   = disc.error,
             hotspotRequired  = hotspotReq,
+            internetStatus   = internetStatus,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
 
