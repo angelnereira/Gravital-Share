@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- External app-specific dir: /sdcard/Android/data/io.gravital.share/files/ -->
+    <external-files-path name="debug_logs" path="." />
+    <!-- Internal files dir fallback -->
+    <files-path name="debug_logs_internal" path="." />
+</paths>

@@ -8,6 +8,7 @@ import android.net.VpnService
 import android.net.wifi.WifiManager
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
+import io.gravital.share.domain.NetworkAuditor
 import io.gravital.share.domain.SessionManager
 import io.gravital.share.domain.SettingsRepository
 import io.gravital.share.telemetry.GravitalLog
@@ -32,6 +33,7 @@ class GravitalVpnService : VpnService() {
 
     @Inject lateinit var sessionManager: SessionManager
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var networkAuditor: NetworkAuditor
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tunFd: Int = -1
@@ -54,6 +56,7 @@ class GravitalVpnService : VpnService() {
         GravitalLog.info(kind = "vpn_service.starting", payload = mapOf("proxy" to proxyAddr))
 
         acquireWifiLock()
+        networkAuditor.startPolling(proxyAddr)
 
         scope.launch {
             val settings = settingsRepository.settings.first()
@@ -145,6 +148,7 @@ class GravitalVpnService : VpnService() {
 
     private fun stopVpn() {
         GravitalLog.info(kind = "vpn_service.stopping")
+        networkAuditor.stopPolling()
         scope.launch { sessionManager.stop() }
         if (tunFd >= 0) tunFd = -1
         releaseWifiLock()

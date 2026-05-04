@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.wifi.WifiManager
 import androidx.lifecycle.LifecycleService
 import dagger.hilt.android.AndroidEntryPoint
+import io.gravital.share.domain.NetworkAuditor
 import io.gravital.share.domain.SessionManager
 import io.gravital.share.telemetry.GravitalLog
 import kotlinx.coroutines.*
@@ -34,6 +35,7 @@ class GravitalServerService : LifecycleService() {
     }
 
     @Inject lateinit var sessionManager: SessionManager
+    @Inject lateinit var networkAuditor: NetworkAuditor
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var fileShareServer: FileShareServer? = null
@@ -66,6 +68,7 @@ class GravitalServerService : LifecycleService() {
         )
 
         acquireWifiLock()
+        networkAuditor.startPolling(proxyAddr = null)
 
         fileShareServer = FileShareServer(applicationContext).also { it.start() }
 
@@ -74,6 +77,7 @@ class GravitalServerService : LifecycleService() {
 
     private fun stopServer() {
         GravitalLog.info(kind = "server_service.stopping")
+        networkAuditor.stopPolling()
         fileShareServer?.stop()
         fileShareServer = null
         releaseWifiLock()
