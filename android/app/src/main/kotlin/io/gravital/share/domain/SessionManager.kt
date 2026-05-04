@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.gravital.share.ffi.EngineBridge
 import io.gravital.share.telemetry.GravitalLog
+import io.gravital.share.telemetry.GravitalLog.addRaw as logRaw
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -149,7 +150,7 @@ class SessionManager @Inject constructor(
     }
 
     private fun handleEngineEvent(json: String) {
-        // Parse "kind" field from the gs.event.v1 JSON and update state accordingly
+        logRaw(json)  // Rust engine events also appear in the diagnostic log buffer
         try {
             val kind = extractJsonField(json, "kind") ?: return
             when {
