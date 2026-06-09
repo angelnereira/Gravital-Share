@@ -1,18 +1,32 @@
 package io.gravital.share.telemetry
 
 import android.util.Log
-import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.*
 import java.time.Instant
 
-/**
- * Structured logging for the Android control plane.
- * Emits gs.event.v1 JSON to Logcat in debug builds.
- * In production, routes to the rolling file sink and optionally to the MCP endpoint.
- */
 object GravitalLog {
 
     private const val TAG = "GravitalShare"
+    private const val MAX_ENTRIES = 2_000
+
+    // ── In-memory ring buffer — read by DiagnosticScreen ─────────────────────
+
+    private val _logBuffer = MutableStateFlow<List<String>>(emptyList())
+    val logBuffer: StateFlow<List<String>> = _logBuffer
+
+    /** Push any raw JSON line (Android-side or Rust engine event) into the buffer. */
+    fun addRaw(json: String) {
+        _logBuffer.update { (it + json).takeLast(MAX_ENTRIES) }
+    }
+
+    fun clearBuffer() {
+        _logBuffer.value = emptyList()
+    }
+
+    // ── Public logging API ────────────────────────────────────────────────────
 
     fun info(kind: String, traceId: String = "", payload: Map<String, Any?> = emptyMap()) =
         emit(Level.INFO, kind, traceId, payload)
@@ -50,6 +64,7 @@ object GravitalLog {
         }
 
         val json = event.toString()
+        addRaw(json)
 
         when (lvl) {
             Level.TRACE, Level.DEBUG -> Log.d(TAG, json)

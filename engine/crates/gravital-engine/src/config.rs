@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MTU: u16 = 1280;
 pub const DEFAULT_DNS: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
+pub const DEFAULT_DNS_SECONDARY: Ipv4Addr = Ipv4Addr::new(8, 8, 8, 8);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "mode")]
@@ -18,9 +19,12 @@ pub struct ClientConfig {
     /// MTU for the TUN interface.
     #[serde(default = "default_mtu")]
     pub mtu: u16,
-    /// DNS resolver for the interceptor.
+    /// Primary DNS server for the interceptor.
     #[serde(default = "default_dns")]
     pub dns_server: IpAddr,
+    /// Secondary/fallback DNS server.
+    #[serde(default = "default_dns_secondary")]
+    pub dns_server_secondary: IpAddr,
     /// Enable UDP ASSOCIATE (true by default; falls back to udpgw if server rejects).
     #[serde(default = "default_true")]
     pub udp_associate_enabled: bool,
@@ -29,9 +33,10 @@ pub struct ClientConfig {
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            proxy_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 43, 1)), 1080),
-            mtu: DEFAULT_MTU,
-            dns_server: IpAddr::V4(DEFAULT_DNS),
+            proxy_addr:           SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 43, 1)), 1080),
+            mtu:                  DEFAULT_MTU,
+            dns_server:           IpAddr::V4(DEFAULT_DNS),
+            dns_server_secondary: IpAddr::V4(DEFAULT_DNS_SECONDARY),
             udp_associate_enabled: true,
         }
     }
@@ -53,16 +58,17 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            socks_bind: "0.0.0.0:1080".parse().unwrap(),
-            http_bind: "0.0.0.0:8080".parse().unwrap(),
+            socks_bind:      "0.0.0.0:1080".parse().unwrap(),
+            http_bind:       "0.0.0.0:8080".parse().unwrap(),
             max_connections: 512,
         }
     }
 }
 
-fn default_mtu() -> u16 { DEFAULT_MTU }
-fn default_dns() -> IpAddr { IpAddr::V4(DEFAULT_DNS) }
-fn default_true() -> bool { true }
-fn default_socks_bind() -> SocketAddr { "0.0.0.0:1080".parse().unwrap() }
-fn default_http_bind() -> SocketAddr { "0.0.0.0:8080".parse().unwrap() }
-fn default_max_connections() -> usize { 512 }
+fn default_mtu()            -> u16      { DEFAULT_MTU }
+fn default_dns()            -> IpAddr   { IpAddr::V4(DEFAULT_DNS) }
+fn default_dns_secondary()  -> IpAddr   { IpAddr::V4(DEFAULT_DNS_SECONDARY) }
+fn default_true()           -> bool     { true }
+fn default_socks_bind()     -> SocketAddr { "0.0.0.0:1080".parse().unwrap() }
+fn default_http_bind()      -> SocketAddr { "0.0.0.0:8080".parse().unwrap() }
+fn default_max_connections() -> usize   { 512 }

@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.gravital.share.ffi.EngineBridge
 import io.gravital.share.telemetry.GravitalLog
+import io.gravital.share.telemetry.GravitalLog.addRaw as logRaw
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +15,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 enum class SessionMode { IDLE, CLIENT, SERVER }
+
+enum class InternetStatus { VERIFYING, OK, UNREACHABLE }
 
 sealed class SessionState {
     object Idle : SessionState()
@@ -42,6 +45,9 @@ class SessionManager @Inject constructor(
     private val _clientCount = MutableStateFlow(0)
     val clientCount: StateFlow<Int> = _clientCount.asStateFlow()
 
+    private val _internetStatus = MutableStateFlow<InternetStatus?>(null)
+    val internetStatus: StateFlow<InternetStatus?> = _internetStatus.asStateFlow()
+
     private val _engineEvents = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 64)
     val engineEvents: SharedFlow<String> = _engineEvents.asSharedFlow()
 
@@ -59,17 +65,29 @@ class SessionManager @Inject constructor(
         }
     }
 
-    fun startClient(tunFd: Int, proxyAddr: String, mtu: Int = 1280, dnsServer: String = "1.1.1.1") {
+    fun reportInternetStatus(ok: Boolean) {
+        _internetStatus.value = if (ok) InternetStatus.OK else InternetStatus.UNREACHABLE
+    }
+
+    fun startClient(
+        tunFd: Int,
+        proxyAddr: String,
+        mtu: Int = 1280,
+        dnsServer: String = "1.1.1.1",
+        dnsServerSecondary: String = "8.8.8.8",
+    ) {
         scope.launch {
             _mode.value = SessionMode.CLIENT
             _state.value = SessionState.Preparing(SessionMode.CLIENT)
+            _internetStatus.value = InternetStatus.VERIFYING
 
             val config = """
                 {
                   "mode": "Client",
                   "proxy_addr": "$proxyAddr",
                   "mtu": $mtu,
-                  "dns_server": "$dnsServer"
+                  "dns_server": "$dnsServer",
+                  "dns_server_secondary": "$dnsServerSecondary"
                 }
             """.trimIndent()
 
@@ -121,16 +139,18 @@ class SessionManager @Inject constructor(
             engineBridge.stop()
             _state.value = SessionState.Idle
             _mode.value = SessionMode.IDLE
+            _internetStatus.value = null
         }
     }
 
     fun acknowledgeError() {
         _state.value = SessionState.Idle
         _mode.value = SessionMode.IDLE
+        _internetStatus.value = null
     }
 
     private fun handleEngineEvent(json: String) {
-        // Parse "kind" field from the gs.event.v1 JSON and update state accordingly
+        logRaw(json)  // Rust engine events also appear in the diagnostic log buffer
         try {
             val kind = extractJsonField(json, "kind") ?: return
             when {
@@ -141,6 +161,10 @@ class SessionManager @Inject constructor(
                 kind == "engine.metrics.snapshot" -> {
                     val bytes = extractJsonLong(json, "bytes_out") ?: 0L
                     _throughput.value = bytes
+                }
+                kind == "engine.client_count" -> {
+                    val count = extractJsonLong(json, "count")?.toInt() ?: 0
+                    _clientCount.value = count
                 }
             }
         } catch (e: Exception) {

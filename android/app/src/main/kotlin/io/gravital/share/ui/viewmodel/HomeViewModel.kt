@@ -6,10 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.gravital.share.domain.InternetStatus
 import io.gravital.share.domain.NetworkDiscovery
 import io.gravital.share.domain.SessionManager
 import io.gravital.share.domain.SessionMode
 import io.gravital.share.domain.SessionState
+import io.gravital.share.service.FileShareServer
 import io.gravital.share.service.GravitalServerService
 import io.gravital.share.service.GravitalVpnService
 import kotlinx.coroutines.Job
@@ -24,6 +26,8 @@ data class HomeUiState(
     val connectedClients: Int      = 0,
     val discovering: Boolean       = false,
     val discoveryError: String?    = null,
+    val hotspotRequired: Boolean   = false,
+    val internetStatus: InternetStatus? = null,
 )
 
 @HiltViewModel
@@ -35,19 +39,25 @@ class HomeViewModel @Inject constructor(
 
     sealed class UiEvent {
         data class RequestVpnPermission(val proxyAddr: String) : UiEvent()
+        object OpenHotspotSettings : UiEvent()
     }
 
     val events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
 
     private data class Discovery(val discovering: Boolean = false, val error: String? = null)
     private val _discovery = MutableStateFlow(Discovery())
+    private val _hotspotRequired = MutableStateFlow(false)
     private var discoveryJob: Job? = null
 
     val uiState: StateFlow<HomeUiState> = combine(
         combine(sessionManager.mode, sessionManager.state) { m, s -> m to s },
         combine(sessionManager.throughput, sessionManager.clientCount) { t, c -> t to c },
-        _discovery,
-    ) { (mode, state), (throughput, clients), disc ->
+        combine(_discovery, _hotspotRequired) { d, h -> d to h },
+        sessionManager.internetStatus,
+    ) { modeState, throughputClients, discHotspot, internetStatus ->
+        val (mode, state) = modeState
+        val (throughput, clients) = throughputClients
+        val (disc, hotspotReq) = discHotspot
         HomeUiState(
             mode             = mode,
             sessionState     = state,
@@ -55,12 +65,20 @@ class HomeViewModel @Inject constructor(
             connectedClients = clients,
             discovering      = disc.discovering,
             discoveryError   = disc.error,
+            hotspotRequired  = hotspotReq,
+            internetStatus   = internetStatus,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
 
-    // ── Client: auto-discover proxy on current WiFi, then request VPN permission
+    // ── Client: check WiFi first, then auto-discover proxy, then request VPN permission
 
     fun startClientMode() {
+        if (!networkDiscovery.isWifiConnected()) {
+            _discovery.value = Discovery(
+                error = "No hay WiFi activo.\nConéctate al punto de acceso del servidor antes de iniciar."
+            )
+            return
+        }
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch {
             _discovery.value = Discovery(discovering = true)
@@ -95,13 +113,26 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    // ── Server: start proxy on hotspot interface ───────────────────────────────
+    // ── Server: check hotspot is active before starting ────────────────────────
 
     fun startServerMode() {
+        if (!networkDiscovery.isHotspotActive()) {
+            _hotspotRequired.value = true
+            return
+        }
         ctx.startForegroundService(
             Intent(ctx, GravitalServerService::class.java)
                 .setAction(GravitalServerService.ACTION_START)
         )
+    }
+
+    fun dismissHotspotDialog() {
+        _hotspotRequired.value = false
+    }
+
+    fun openHotspotSettings() {
+        _hotspotRequired.value = false
+        viewModelScope.launch { events.emit(UiEvent.OpenHotspotSettings) }
     }
 
     // ── QR fallback ───────────────────────────────────────────────────────────
@@ -123,17 +154,25 @@ class HomeViewModel @Inject constructor(
     fun getServerQrContent(): String? =
         networkDiscovery.getServerAddresses().firstOrNull()?.let { "$it:1080" }
 
+    // Returns the file-share browser URL for the server device
+    fun getFileShareUrl(): String? =
+        networkDiscovery.getServerAddresses().firstOrNull()?.let { "http://$it:${FileShareServer.PORT}" }
+
     // ── Stop current session ───────────────────────────────────────────────────
 
     fun stop() {
         viewModelScope.launch {
-            val state = uiState.value.sessionState
             sessionManager.stop()
-            if (state is SessionState.Connected && state.mode == SessionMode.SERVER) {
-                ctx.startService(
+            when (uiState.value.mode) {
+                SessionMode.SERVER -> ctx.startService(
                     Intent(ctx, GravitalServerService::class.java)
                         .setAction(GravitalServerService.ACTION_STOP)
                 )
+                SessionMode.CLIENT -> ctx.startService(
+                    Intent(ctx, GravitalVpnService::class.java)
+                        .setAction(GravitalVpnService.ACTION_STOP)
+                )
+                SessionMode.IDLE -> { /* nothing to stop */ }
             }
         }
     }

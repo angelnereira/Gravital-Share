@@ -36,6 +36,8 @@ struct Inner {
     nat: NatTable,
     /// socket_handle → (real_remote_addr, channel peer held by poll loop)
     active: HashMap<SocketHandle, (SocketAddr, VirtualConnectionPeer)>,
+    /// O(1) reverse lookup: socket_handle → virtual port (avoids 50k scan on close)
+    handle_to_vport: HashMap<SocketHandle, u16>,
     /// Newly established connections waiting to be `accept()`ed by the engine.
     pending: VecDeque<VirtualConnection>,
     /// Outbound packets (already rewritten) ready to write to TUN.
@@ -69,6 +71,7 @@ impl Inner {
             sockets: SocketSet::new(vec![]),
             nat: NatTable::new(),
             active: HashMap::new(),
+            handle_to_vport: HashMap::new(),
             pending: VecDeque::with_capacity(PENDING_CAP),
             tun_tx: VecDeque::with_capacity(256),
             tun_rx: VecDeque::with_capacity(256),
@@ -95,8 +98,7 @@ impl Inner {
             let closed = self.service_socket(handle);
             if closed {
                 let (_, peer) = self.active.remove(&handle).unwrap();
-                let vport = self.vport_of_handle(handle);
-                if let Some(vp) = vport {
+                if let Some(vp) = self.handle_to_vport.remove(&handle) {
                     self.nat.remove_by_vport(vp);
                 }
                 self.sockets.remove(handle);
@@ -138,9 +140,10 @@ impl Inner {
         let vport = if is_tcp_syn(pkt_slice) {
             match self.nat.insert(src, real_dst) {
                 Some(vp) => {
-                    if !self.active.values().any(|(rd, _)| *rd == real_dst) {
-                        self.create_listener(vp, real_dst);
-                    }
+                    // Always create a listener for each new SYN — each (src, dst)
+                    // pair gets its own virtual port, so multiple simultaneous
+                    // connections to the same server all work independently.
+                    self.create_listener(vp, real_dst);
                     vp
                 }
                 None => {
@@ -167,7 +170,10 @@ impl Inner {
         let tx_buf = tcp::SocketBuffer::new(vec![0u8; SOCK_BUF]);
         let mut socket = tcp::Socket::new(rx_buf, tx_buf);
 
-        let endpoint = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address(IFACE_IP.octets())), vport);
+        // Bind to unspecified address so smoltcp accepts packets for ANY dst IP.
+        // Inbound packets are rewritten to vport but retain the original dst IP
+        // (e.g. 8.8.8.8:vport). A specific-IP listen endpoint would reject them.
+        let endpoint = IpEndpoint::new(IpAddress::Unspecified, vport);
         if let Err(e) = socket.listen(endpoint) {
             warn!(kind = "stack.listen_failed", vport, error = ?e);
             return;
@@ -176,12 +182,12 @@ impl Inner {
         let handle = self.sockets.add(socket);
 
         let (conn, peer) = VirtualConnection::pair(
-            // local addr from smoltcp's perspective
             SocketAddr::V4(SocketAddrV4::new(IFACE_IP, vport)),
             real_remote,
         );
 
         self.active.insert(handle, (real_remote, peer));
+        self.handle_to_vport.insert(handle, vport);
 
         if self.pending.len() < PENDING_CAP {
             self.pending.push_back(conn);
@@ -237,22 +243,6 @@ impl Inner {
         false
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────────────
-
-    /// Find the virtual port assigned to a socket handle by scanning active map.
-    fn vport_of_handle(&self, handle: SocketHandle) -> Option<u16> {
-        let (real_remote, _) = self.active.get(&handle)?;
-        // Walk NAT reverse map to find the vport for this handle's remote addr.
-        // (O(n) but n is small; could be made O(1) with a handle→vport map.)
-        for vport in 10_000..60_000u16 {
-            if let Some((_, rd)) = self.nat.lookup_reverse(vport) {
-                if rd == *real_remote {
-                    return Some(vport);
-                }
-            }
-        }
-        None
-    }
 }
 
 /// Extract source port from an IPv4/TCP packet (smoltcp outbound = virtual port).

@@ -16,4 +16,7 @@ pub enum DnsError {
 
     #[error("timeout resolving {0}")]
     Timeout(String),
+
+    #[error("SOCKS5 protocol error: {0}")]
+    Protocol(String),
 }
